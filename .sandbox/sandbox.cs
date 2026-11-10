@@ -21,16 +21,24 @@ using Spectre.Console;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
-Ui.Init();
+try
+{
+    Ui.Init();
 
-if (args[0] == "help")
-    args = [.. args[1..], "--help"]; // `help [command]`
+    if (args.Length == 1 && args[0] == "help")
+        args = [.. args[1..], "--help"]; // `help [command]`
 
-// `claude` forwards everything verbatim (including --help, --resume, -p, ...) to the CLI in the sandbox.
-if (args[0] == "claude")
-    return Cli.Guard(() => Commands.Claude(Sandbox.Load(), args[1..]));
+    // `claude` forwards everything verbatim (including --help, --resume, -p, ...) to the CLI in the sandbox.
+    if (args.Length == 1 && args[0] == "claude")
+        return Cli.Guard(() => Commands.Claude(Sandbox.Load(), args[1..]));
 
-return await Cli.Build().Parse(args).InvokeAsync();
+    return await Cli.Build().Parse(args).InvokeAsync();
+}
+catch (Exception ex)
+{
+    AnsiConsole.WriteException(ex);
+    return 1;
+}
 
 // =============================================================================
 //  Command line
