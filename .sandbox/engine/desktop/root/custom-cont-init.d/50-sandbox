@@ -1,0 +1,51 @@
+#!/usr/bin/with-contenv bash
+# Runs as root at every container start (LinuxServer.io custom init hook).
+WORKDIR=${SANDBOX_WORKDIR:-/work}
+
+# 1. Proxy + project path for login shells / PAM sessions too.
+{
+  echo "HTTP_PROXY=${HTTP_PROXY}";  echo "http_proxy=${HTTP_PROXY}"
+  echo "HTTPS_PROXY=${HTTPS_PROXY}"; echo "https_proxy=${HTTPS_PROXY}"
+  echo "NO_PROXY=${NO_PROXY}";      echo "no_proxy=${NO_PROXY}"
+  echo "SANDBOX_WORKDIR=${WORKDIR}"
+} > /etc/environment
+
+# 2. sudo policy: SANDBOX_SUDO=false removes the desktop user's root access.
+if [ "${SANDBOX_SUDO:-true}" = "false" ]; then
+  echo "abc ALL=(ALL:ALL) !ALL" > /etc/sudoers.d/zz-sandbox-nosudo
+  chmod 0440 /etc/sudoers.d/zz-sandbox-nosudo
+  echo "[sandbox] sudo disabled for user abc"
+else
+  rm -f /etc/sudoers.d/zz-sandbox-nosudo
+fi
+
+# 3. Desktop shortcuts, regenerated each start (the project path may change).
+D=/config/Desktop
+install -d -o abc -g abc "$D"
+rm -f "$D"/sandbox-*.desktop
+name=$(basename "$WORKDIR")
+cat > "$D/sandbox-project.desktop" <<EOF
+[Desktop Entry]
+Type=Link
+Name=Project ($name)
+URL=file://$WORKDIR
+Icon=folder-development
+EOF
+cat > "$D/sandbox-terminal.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Terminal ($name)
+Exec=konsole --workdir $WORKDIR
+Icon=utilities-terminal
+Terminal=false
+EOF
+for f in /usr/local/share/sandbox/shortcuts/*.desktop; do
+  [ -f "$f" ] || continue
+  sed "s#@WORKDIR@#$WORKDIR#g" "$f" > "$D/sandbox-$(basename "$f")"
+done
+chown abc:abc "$D"/sandbox-*.desktop
+chmod 0755 "$D"/sandbox-*.desktop
+
+# 4. ~/project -> project folder
+ln -sfn "$WORKDIR" /config/project && chown -h abc:abc /config/project
+exit 0

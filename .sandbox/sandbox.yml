@@ -1,0 +1,47 @@
+# =============================================================================
+#  Sandbox configuration for this project — commit it with the project.
+# =============================================================================
+#  Apply:   .sandbox/sandbox up          (or .sandbox\sandbox.cmd up)
+#  Tools changed?  .sandbox/sandbox rebuild
+#  Format: a Docker Compose override (merged over engine/compose.yml).
+#  Relative paths are relative to this .sandbox folder.
+
+x-sandbox:
+  # project_name: myproject   # container group name (default: project folder name)
+  workspace_mode: rw          # rw | ro   access to the project folder
+  protect_git: true           # .git/config + .git/hooks read-only (prevents planting
+                              # hooks that would run on your host)
+  # ui_port: 3001             # fixed localhost port (default: random free port)
+
+services:
+  desktop:
+    build:
+      args:
+        # "true" = default version, "false" = don't install, otherwise a version/list
+        INSTALL_CLAUDE: "true"         # Claude Desktop app (beta on Linux)
+        INSTALL_CLAUDE_CODE: "false"   # Claude Code CLI: true | latest
+        INSTALL_DOTNET: "10.0"         # .NET SDK channel(s), e.g. "10.0 8.0"
+        INSTALL_NODE: "false"          # Node.js major version, e.g. "24" (true = 24)
+        INSTALL_BUN: "true"
+        INSTALL_VSCODE: "true"
+        INSTALL_JETBRAINS: "false"     # e.g. "rider" or "toolbox rider idea"
+                                       #   toolbox rider idea pycharm webstorm clion
+                                       #   goland rustrover datagrip phpstorm rubymine
+        INSTALL_APT: ""                # extra Ubuntu packages, e.g. "build-essential python3-pip"
+
+    environment:
+      TITLE: AI Sandbox
+      SANDBOX_SUDO: "true"             # false = no root inside (once tools are installed)
+      # TZ: Europe/Vienna              # default: taken from the host
+      # CUSTOM_USER: me                # optional basic auth for the web desktop
+      # PASSWORD: secret
+
+    mem_limit: 8g
+    # cpus: 4                          # must not exceed the host's core count
+
+    # Extra folders for the sandbox. Revoke = remove the line + "sandbox up".
+    volumes:
+      - type: tmpfs                    # placeholder, keeps the list valid
+        target: /shares
+      # - ../../reference-docs:/shares/docs:ro
+      # - C:/Users/me/datasets:/shares/data:rw

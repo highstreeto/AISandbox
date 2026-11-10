@@ -1,0 +1,4 @@
+#!/bin/sh
+# Launcher (Linux, macOS, WSL, Git Bash): compiles (cached) and runs sandbox.cs with the .NET 10+ SDK.
+# `run --file … --` hands every argument to the app (plain `dotnet file.cs` would keep --help, -v, … for itself).
+exec dotnet run --file "$(dirname "$0")/sandbox.cs" -- "$@"

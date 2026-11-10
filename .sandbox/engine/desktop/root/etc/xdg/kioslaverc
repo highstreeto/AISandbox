@@ -1,0 +1,6 @@
+# KDE: use the proxy from the environment variables (HTTP_PROXY etc.)
+[Proxy Settings]
+ProxyType=4
+httpProxy=HTTP_PROXY
+httpsProxy=HTTPS_PROXY
+NoProxyFor=NO_PROXY
