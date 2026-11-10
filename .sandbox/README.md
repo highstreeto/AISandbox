@@ -22,8 +22,9 @@ Run these from anywhere. They don't change your current directory.
 .sandbox/sandbox help up     # help for one command (or: up --help)
 ```
 
-Requires Docker and the **.NET 10 SDK** on the host. The control logic is a single
-[.NET file-based app](https://learn.microsoft.com/dotnet/core/sdk/file-based-apps), `sandbox.cs`. The two files above are
+Requires Docker and the **.NET 10 SDK** (10.0.400 or newer, for `#:include`) on the host. The control logic is a
+[.NET file-based app](https://learn.microsoft.com/dotnet/core/sdk/file-based-apps). The entry point is `sandbox.cs`, which holds the commands.
+It pulls in the `sandbox.*.cs` files next to it (project, config, allowlist, proc, ui) with `#:include`. The two files above are
 one-line launchers that run `dotnet run --file sandbox.cs -- <args>`, so every argument reaches the app unchanged.
 The first run (and the first one after `sandbox.cs` changes) restores packages and compiles, which takes a few seconds. Later runs use the cache.
 
