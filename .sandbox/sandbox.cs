@@ -45,7 +45,7 @@ catch (Exception ex)
 // =============================================================================
 static class Cli
 {
-    public static readonly Option<bool> Verbose = new("--verbose", "-v")
+    private static readonly Option<bool> Verbose = new("--verbose", "-v")
     {
         Description = "Print the docker commands that are run",
         Recursive = true,
@@ -54,7 +54,7 @@ static class Cli
     public static RootCommand Build()
     {
         var root = new RootCommand(
-            "AI Sandbox — a KDE desktop for this project, reachable only through an allowlist proxy."
+            "AI Sandbox — a desktop for this project, reachable only through an allowlist proxy."
         );
         root.Options.Add(Verbose);
 
