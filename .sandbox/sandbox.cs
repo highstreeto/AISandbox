@@ -67,38 +67,48 @@ static class Cli
         root.Options.Add(Verbose);
 
         // --- Lifecycle --------------------------------------------------------
-        var up = Cmd("up", "Build (if needed), start and open the desktop in the browser", "start");
+        var up = new Command("up", "Build (if needed), start and open the desktop in the browser");
+        up.Aliases.Add("start");
         var noOpen = new Option<bool>("--no-open") { Description = "Don't open the browser" };
         up.Options.Add(noOpen);
         up.SetAction(r => Run(r, sb => Commands.Up(sb, !r.GetValue(noOpen))));
+        root.Subcommands.Add(up);
 
-        var stop = Cmd("stop", "Stop (everything is kept)");
+        var stop = new Command("stop", "Stop (everything is kept)");
         stop.SetAction(r => Run(r, sb => Commands.Compose(sb, "Stopping", "stop")));
+        root.Subcommands.Add(stop);
 
-        var down = Cmd("down", "Remove containers (home volume and project are kept)");
+        var down = new Command("down", "Remove containers (home volume and project are kept)");
         down.SetAction(r => Run(r, sb => Commands.Compose(sb, "Removing containers", "down")));
+        root.Subcommands.Add(down);
 
-        var restart = Cmd("restart", "Restart");
+        var restart = new Command("restart", "Restart");
         restart.SetAction(r => Run(r, sb => Commands.Compose(sb, "Restarting", "restart")));
+        root.Subcommands.Add(restart);
 
-        var status = Cmd("status", "Container status and URL", "ps");
+        var status = new Command("status", "Container status and URL");
+        status.Aliases.Add("ps");
         status.SetAction(r => Run(r, Commands.Status));
+        root.Subcommands.Add(status);
 
-        var open = Cmd("open", "Open the desktop in the browser");
+        var open = new Command("open", "Open the desktop in the browser");
         open.SetAction(r => Run(r, Commands.Open));
+        root.Subcommands.Add(open);
 
-        var shell = Cmd("shell", "Bash inside the sandbox (in the project folder)");
+        var shell = new Command("shell", "Bash inside the sandbox (in the project folder)");
         shell.SetAction(r => Run(r, sb => sb.Exec("bash", "-l")));
+        root.Subcommands.Add(shell);
 
         // Runs before parsing (see the top of this file); declared here for --help only.
-        var claude = Cmd(
+        var claude = new Command(
             "claude",
             "Claude Code CLI inside the sandbox (needs INSTALL_CLAUDE_CODE); all arguments are passed on"
         );
         claude.Arguments.Add(Many("args", "Arguments for claude"));
         claude.TreatUnmatchedTokensAsErrors = false;
+        root.Subcommands.Add(claude);
 
-        var logs = Cmd("logs", "Follow logs (proxy, gateway, desktop)");
+        var logs = new Command("logs", "Follow logs (proxy, gateway, desktop)");
         var services = Many("service", "proxy | gateway | desktop (default: all)");
         var tail = new Option<int>("--tail", "-n")
         {
@@ -116,9 +126,15 @@ static class Cli
             Run(
                 r,
                 sb =>
-                    Commands.Logs(sb, r.GetValue(services) ?? [], r.GetValue(tail), !r.GetValue(noFollow))
+                    Commands.Logs(
+                        sb,
+                        r.GetValue(services) ?? [],
+                        r.GetValue(tail),
+                        !r.GetValue(noFollow)
+                    )
             )
         );
+        root.Subcommands.Add(logs);
 
         // --- Network ----------------------------------------------------------
         var hosts = new Argument<string[]>("host")
@@ -127,15 +143,17 @@ static class Cli
             Description = "Host name, wildcards like *.example.com allowed",
         };
 
-        var allow = Cmd("allow", "Allow host(s) and reload the proxy");
+        var allow = new Command("allow", "Allow host(s) and reload the proxy");
         allow.Arguments.Add(hosts);
         allow.SetAction(r => Run(r, sb => Commands.Allow(sb, r.GetValue(hosts)!)));
+        root.Subcommands.Add(allow);
 
-        var deny = Cmd("deny", "Remove host(s) and reload the proxy");
+        var deny = new Command("deny", "Remove host(s) and reload the proxy");
         deny.Arguments.Add(hosts);
         deny.SetAction(r => Run(r, sb => Commands.Deny(sb, r.GetValue(hosts)!)));
+        root.Subcommands.Add(deny);
 
-        var allowlist = Cmd("allowlist", "Show active allowlist entries");
+        var allowlist = new Command("allowlist", "Show active allowlist entries");
         var all = new Option<bool>("--all", "-a")
         {
             Description = "Also show the commented-out (available) entries",
@@ -144,42 +162,46 @@ static class Cli
         allowlist.SetAction(r =>
             Run(r, sb => Commands.ShowAllowlist(sb, r.GetValue(all)), docker: false)
         );
+        root.Subcommands.Add(allowlist);
 
-        var blocked = Cmd("blocked", "Show hosts the sandbox tried to reach but were blocked");
+        var blocked = new Command(
+            "blocked",
+            "Show hosts the sandbox tried to reach but were blocked"
+        );
         blocked.SetAction(r => Run(r, Commands.Blocked));
+        root.Subcommands.Add(blocked);
 
-        var reload = Cmd("reload", "Reload the proxy after editing allowlist.txt");
+        var reload = new Command("reload", "Reload the proxy after editing allowlist.txt");
         reload.SetAction(r => Run(r, Commands.ReloadProxy));
+        root.Subcommands.Add(reload);
 
         // --- Maintenance ------------------------------------------------------
-        var rebuild = Cmd("rebuild", "Rebuild after changing INSTALL_* in sandbox.yml");
+        var rebuild = new Command("rebuild", "Rebuild after changing INSTALL_* in sandbox.yml");
         rebuild.SetAction(r => Run(r, sb => Commands.Rebuild(sb, pull: false)));
+        root.Subcommands.Add(rebuild);
 
-        var update = Cmd("update", "Rebuild with the newest versions of all tools");
+        var update = new Command("update", "Rebuild with the newest versions of all tools");
         update.SetAction(r => Run(r, sb => Commands.Rebuild(sb, pull: true)));
+        root.Subcommands.Add(update);
 
-        var resetHome = Cmd("reset-home", "Delete the persistent home (logins, IDE settings)");
+        var resetHome = new Command(
+            "reset-home",
+            "Delete the persistent home (logins, IDE settings)"
+        );
         var yes = new Option<bool>("--yes", "-y") { Description = "Don't ask for confirmation" };
         resetHome.Options.Add(yes);
         resetHome.SetAction(r => Run(r, sb => Commands.ResetHome(sb, r.GetValue(yes))));
+        root.Subcommands.Add(resetHome);
 
-        var info = Cmd("info", "Show the project identity, settings and configured tools");
+        var info = new Command("info", "Show the project identity, settings and configured tools");
         info.SetAction(r => Run(r, Commands.Info, docker: false));
+        root.Subcommands.Add(info);
 
-        var help = Cmd("help", "Show help (for a command: help <command>)");
+        var help = new Command("help", "Show help (for a command: help <command>)");
         help.Arguments.Add(Many("command", "Command to show help for")); // rewritten to --help before parsing
+        root.Subcommands.Add(help);
 
         return root;
-
-        Command Cmd(string name, string description, params string[] aliases)
-        {
-            var c = new Command(name, description);
-            foreach (var a in aliases)
-                c.Aliases.Add(a);
-
-            root.Subcommands.Add(c);
-            return c;
-        }
 
         static Argument<string[]> Many(string name, string description) =>
             new(name) { Arity = ArgumentArity.ZeroOrMore, Description = description };
