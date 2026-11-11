@@ -43,8 +43,8 @@ raw.githubusercontent.com
 # objects.githubusercontent.com
 
 # --- .NET / NuGet ------------------------------------------------------------
-# api.nuget.org
-# globalcdn.nuget.org
+api.nuget.org
+globalcdn.nuget.org
 # dot.net
 # builds.dotnet.microsoft.com
 
