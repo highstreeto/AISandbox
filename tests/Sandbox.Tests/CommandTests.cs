@@ -302,11 +302,12 @@ public sealed class CommandTests(SandboxFixture f) : SandboxTest(f)
         AssertCalls(r, DockerInfo, Ps, Port);
         AssertOutput(r, "$ docker info --format {{.ServerVersion}}");
         AssertOutput(r, $"$ docker compose -p demo-project --project-directory {F.Dir} -f ");
-        AssertOutput(r, " ps -a --format json");
+        // the line may be wrapped to the terminal width
+        Assert.Contains(" ps -a --format json", Regex.Replace(r.Output, @"\s+", " "));
     }
 
     [Fact]
-    public void Local_overrides_are_passed_to_every_compose_call()
+    public void Every_compose_call_uses_only_the_generated_file()
     {
         WriteLocalConf("services:\n  desktop:\n    mem_limit: 4g\n");
         var r = Run("up", "--no-open");
@@ -314,8 +315,9 @@ public sealed class CommandTests(SandboxFixture f) : SandboxTest(f)
         AssertCalls(r, DockerInfo, CollisionCheck(), ComposeInteractive("build"), UpWait, Port);
         Assert.All(
             r.Calls.Where(c => c.Args[0] == "compose"),
-            c => Assert.Equal(["-f", F.LocalConfFile], c.Args[11..13])
+            c => Assert.Single(c.Args, a => a == "-f")
         );
+        Assert.Contains("mem_limit: 4g", File.ReadAllText(F.GeneratedFile));
     }
 
     [Fact]

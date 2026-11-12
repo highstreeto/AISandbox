@@ -24,7 +24,7 @@ public sealed class SandboxFixture : IDisposable
 
     public string StateDir => Path.Combine(Dir, ".state");
     public string IdFile => Path.Combine(StateDir, "id");
-    public string GeneratedFile => Path.Combine(StateDir, "compose.generated.yml");
+    public string GeneratedFile => Path.Combine(StateDir, "compose.yml");
     public string ConfFile => Path.Combine(Dir, "sandbox.yml");
     public string LocalConfFile => Path.Combine(Dir, "sandbox.local.yml");
     public string AllowlistFile => Path.Combine(Dir, "allowlist.txt");

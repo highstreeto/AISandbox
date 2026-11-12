@@ -98,7 +98,7 @@ static class Config
         );
     }
 
-    static YamlMappingNode? Load(string path)
+    public static YamlMappingNode? Load(string path)
     {
         using var reader = new StreamReader(path);
         var ys = new YamlStream();

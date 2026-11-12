@@ -2,7 +2,7 @@
 
 Black-box tests for the sandbox control app (`.sandbox/sandbox.cs`). Every command runs against a **fake `docker`**
 executable. The tests check the exact docker calls, exit codes and messages, and the generated
-`.state/compose.generated.yml`.
+`.state/compose.yml`.
 
 ```bash
 dotnet test tests/Sandbox.Tests
@@ -26,4 +26,4 @@ Needs the .NET 10 SDK and NuGet access. No Docker needed. Runs on Windows, Linux
 |---|---|
 | `CommandTests.cs` | Every command and alias, its docker calls in order, `-v`, `sandbox.local.yml`, `project_name` |
 | `ErrorTests.cs` | Docker missing or not running, failing docker calls, invalid `sandbox.yml` / hosts |
-| `ComposeFileTests.cs` | The generated compose override, exact text and structure, for each setting |
+| `ComposeFileTests.cs` | The generated compose file: exact text, each setting, each merge rule, the settings that can't be overridden |

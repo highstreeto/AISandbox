@@ -3,7 +3,7 @@
 # =============================================================================
 #  Apply:   .sandbox/sandbox up          (or .sandbox\sandbox.cmd up)
 #  Tools changed?  .sandbox/sandbox rebuild
-#  Format: a Docker Compose override (merged over engine/compose.yml).
+#  Format: Docker Compose syntax, merged over engine/compose.yml into .state/compose.yml.
 #  Relative paths are relative to this .sandbox folder.
 
 x-sandbox:

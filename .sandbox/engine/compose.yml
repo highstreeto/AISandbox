@@ -1,7 +1,8 @@
 # AI Sandbox engine — you normally don't edit this file.
 # Project settings live in ../sandbox.yml, the network allowlist in ../allowlist.txt.
-# Always started through ../sandbox (or ../sandbox.cmd → ../sandbox.cs), which adds a generated
-# file with the project mounts, the container group name and the UI port.
+# Never run directly: ../sandbox (or ../sandbox.cmd → ../sandbox.cs) merges this file with
+# ../sandbox.yml, ../sandbox.local.yml, the project mounts and the UI port into .state/compose.yml,
+# the one file docker compose is started with.
 #
 #   host browser ──► 127.0.0.1:<port> ──► gateway ──► desktop (KDE)
 #                                                       │  internal network:
@@ -44,7 +45,7 @@ services:
     build: ./engine/proxy
     command: ["socat", "TCP-LISTEN:3001,fork,reuseaddr", "TCP:desktop:3001"]
     networks: [sandbox, ui]
-    # ports: added by the generated file (127.0.0.1 only)
+    # ports: set by the app (127.0.0.1 only)
     depends_on: [proxy]
 
   desktop:
@@ -62,7 +63,7 @@ services:
       no_proxy: localhost,127.0.0.1,::1
     volumes:
       - home:/config            # persistent home: logins, IDE settings, Toolbox IDEs
-      # project mounts: added by the generated file
+      # project mounts: added by the app
     networks: [sandbox]
     mem_limit: 8g
     pids_limit: 4096

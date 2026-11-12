@@ -76,7 +76,14 @@ and anything else is a version or a list. Each one runs `sandbox-install <tool> 
 Inside the sandbox you can run the same command, e.g. `sandbox-install jetbrains rider`. With no arguments it lists the tools and the hosts each one needs.
 Runtime installs are lost on rebuild, so put permanent tools in `sandbox.yml`.
 
-The file is a Docker Compose override, so anything Compose supports works too: environment, memory, extra volumes.
+The file uses Docker Compose syntax, so anything Compose supports works too: environment, memory, extra volumes.
+The app merges `engine/compose.yml`, `sandbox.yml`, `sandbox.local.yml` and this machine's settings into one file,
+`.state/compose.yml`, and runs every `docker compose` command with only that file. It's regenerated before each
+command. Look at it to see what will actually run. The merge follows Compose's rules: mappings are merged,
+`environment`/`labels`/`args` by key (list or map form), `volumes` by container path, `command` and
+`healthcheck.test` are replaced, other lists are combined. `!reset` removes a value and `!override` replaces it.
+`include` and `extends` aren't supported. The UI port, the project mounts and the `.sandbox` read-only mount
+are always set by the app and can't be overridden; `TZ`, `PUID` and `PGID` are defaults you can override.
 For machine-specific tweaks (GPU, fixed port, personal shares), create `sandbox.local.yml`. It's gitignored and loaded last.
 Its `x-sandbox` values (for example `ui_port`) override the ones in `sandbox.yml`.
 Invalid values (`workspace_mode: rx`, a non-numeric `ui_port`, broken YAML) are reported with the setting or line number.

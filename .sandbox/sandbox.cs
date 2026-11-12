@@ -7,7 +7,8 @@
 //
 // This file: the entry point, the command line and what each command does.
 // The rest lives next to it and is pulled in with #:include:
-//   sandbox.project.cs    project identity, docker compose calls, the generated compose override
+//   sandbox.project.cs    project identity, docker compose calls, the generated compose file
+//   sandbox.compose.cs    merging the compose layers into that one file
 //   sandbox.config.cs     sandbox.yml / sandbox.local.yml settings
 //   sandbox.allowlist.cs  allowlist.txt
 //   sandbox.proc.cs       child processes, native user ids
@@ -18,6 +19,7 @@
 #:property Nullable=enable
 #:property PublishAot=false
 #:include sandbox.project.cs
+#:include sandbox.compose.cs
 #:include sandbox.config.cs
 #:include sandbox.allowlist.cs
 #:include sandbox.proc.cs

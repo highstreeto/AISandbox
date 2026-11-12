@@ -142,8 +142,8 @@ public abstract class SandboxTest
 
     protected static Call DockerInfo => Docker("info", "--format", "{{.ServerVersion}}");
 
-    /// `docker compose -p <name> --project-directory <dir> -f engine/compose.yml -f .state/compose.generated.yml
-    /// -f sandbox.yml [-f sandbox.local.yml] <args>` — attached to the terminal (build, exec, logs).
+    /// `docker compose -p <name> --project-directory <dir> -f .state/compose.yml <args>`
+    /// — attached to the terminal (build, exec, logs).
     protected Call ComposeInteractive(params string[] args) =>
         ComposeAs(SandboxFixture.ProjectName, args);
 
@@ -160,14 +160,8 @@ public abstract class SandboxTest
             "--project-directory",
             F.Dir,
             "-f",
-            Path.Combine(F.Dir, "engine", "compose.yml"),
-            "-f",
             F.GeneratedFile,
-            "-f",
-            F.ConfFile,
         };
-        if (File.Exists(F.LocalConfFile))
-            a.AddRange(["-f", F.LocalConfFile]);
         a.AddRange(args);
         return Docker([.. a]);
     }
