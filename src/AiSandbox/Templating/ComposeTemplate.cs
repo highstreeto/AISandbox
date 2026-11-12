@@ -7,7 +7,7 @@ using Scriban.Syntax;
 namespace AiSandbox.Templating;
 
 /// <summary>
-/// Renders <c>engine/compose.yml.sbn</c> (a Scriban template) into the one compose file docker compose runs with.
+/// Renders <c>compose.yml.sbn</c> (the embedded Scriban template) into the one compose file docker compose runs with.
 /// </summary>
 /// <remarks>
 /// The template holds every service, network and hardening setting literally; only the values that come from
@@ -16,13 +16,15 @@ namespace AiSandbox.Templating;
 /// </remarks>
 internal static class ComposeTemplate
 {
-    public static string Render(string templatePath, ScriptObject model)
+    /// <param name="text">The template text.</param>
+    /// <param name="name">The template's name, for error messages.</param>
+    /// <param name="model">The template's variables.</param>
+    public static string Render(string text, string name, ScriptObject model)
     {
-        var name = Path.GetFileName(templatePath);
-        var template = Template.Parse(File.ReadAllText(templatePath), templatePath);
+        var template = Template.Parse(text, name);
         if (template.HasErrors)
             throw new SandboxException(
-                $"engine/{name} is not a valid template: {string.Join("; ", template.Messages)}"
+                $"{name} is not a valid template: {string.Join("; ", template.Messages)}"
             );
 
         var globals = new ScriptObject();
@@ -40,7 +42,7 @@ internal static class ComposeTemplate
         }
         catch (ScriptRuntimeException e)
         {
-            throw new SandboxException($"engine/{name}: {e.Message}");
+            throw new SandboxException($"{name}: {e.Message}");
         }
     }
 

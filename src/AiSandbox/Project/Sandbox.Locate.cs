@@ -25,7 +25,7 @@ internal sealed partial record Sandbox
             return IsSandboxDir(full)
                 ? Physical(full)
                 : throw new SandboxException(
-                    $"{DirVariable} is {full}, which is not a .sandbox folder (with {Config.FileName} and engine/)."
+                    $"{DirVariable} is {full}, which is not a .sandbox folder (with {Config.FileName})."
                 );
         }
         for (var d = new DirectoryInfo(Environment.CurrentDirectory); d != null; d = d.Parent)
@@ -37,16 +37,13 @@ internal sealed partial record Sandbox
                 return Physical(sub);
         }
         throw new SandboxException(
-            $"Could not find the .sandbox folder (with {Config.FileName} and engine/)."
+            $"Could not find the .sandbox folder (with {Config.FileName})."
         );
     }
 
     private static bool IsSandboxDir(string dir) =>
-        (
-            File.Exists(Path.Combine(dir, Config.FileName))
-            || File.Exists(Path.Combine(dir, OldConfigFileName))
-        )
-        && Directory.Exists(Path.Combine(dir, "engine"));
+        File.Exists(Path.Combine(dir, Config.FileName))
+        || File.Exists(Path.Combine(dir, OldConfigFileName));
 
     /// <summary>
     /// Like <c>pwd -P</c>: resolves a symlinked folder.
@@ -63,6 +60,19 @@ internal sealed partial record Sandbox
         {
             return full;
         }
+    }
+
+    /// <summary>
+    /// <c>.sandbox/engine/</c> from before the engine was built into the app: a warning, nothing is deleted (the
+    /// files are committed and may hold the project's own edits).
+    /// </summary>
+    public static void CheckOldLayout(string dir)
+    {
+        if (Directory.Exists(Path.Combine(dir, "engine")))
+            Ui.Warn(
+                ".sandbox/engine/ is no longer used \u2014 the engine is built into the app (see .sandbox/.state/desktop/ and proxy/). "
+                    + "Delete it, together with .sandbox/README.md, .gitattributes and .gitignore."
+            );
     }
 
     /// <summary>

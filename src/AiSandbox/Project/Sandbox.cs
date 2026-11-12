@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using AiSandbox.Configuration;
+using AiSandbox.Templating;
 
 namespace AiSandbox.Project;
 
@@ -10,7 +11,7 @@ namespace AiSandbox.Project;
 /// </summary>
 /// <remarks>
 /// Split by area: <c>Sandbox.Locate.cs</c> (finding the folder), <c>Sandbox.Docker.cs</c> (docker and docker
-/// compose calls), <c>Sandbox.Generate.cs</c> (the generated compose file).
+/// compose calls), <c>Sandbox.Generate.cs</c> (the engine files and the generated compose file).
 /// </remarks>
 /// <param name="Dir">The <c>.sandbox</c> folder.</param>
 /// <param name="ProjectDir">The project folder, the parent of <paramref name="Dir"/>.</param>
@@ -31,7 +32,8 @@ internal sealed partial record Sandbox(
 {
     public string AllowlistPath => Path.Combine(Dir, "allowlist.txt");
     public string StateDir => StateDirOf(Dir);
-    public string TemplatePath => Path.Combine(Dir, "engine", "compose.yml.sbn");
+    public string DesktopContext => Path.Combine(StateDir, "desktop");
+    public string ProxyContext => Path.Combine(StateDir, "proxy");
     public string GenPath => Path.Combine(StateDir, "compose.yml");
 
     public static Sandbox Load(bool verbose = false)
@@ -41,10 +43,11 @@ internal sealed partial record Sandbox(
         var id = LoadOrCreateId(StateDirOf(dir), projectDir);
 
         CheckOldConfig(dir);
+        CheckOldLayout(dir);
         var settings = Config.Read(
             Path.Combine(dir, Config.FileName),
             projectDir,
-            Path.Combine(dir, "engine", "desktop", "Dockerfile")
+            EmbeddedFiles.ReadText("desktop/Dockerfile")
         );
         var baseName = Sanitize(Path.GetFileName(projectDir));
         return new Sandbox(
@@ -72,7 +75,10 @@ internal sealed partial record Sandbox(
 
     private static string StateDirOf(string dir) => Path.Combine(dir, ".state");
 
-    private static string LoadOrCreateId(string stateDir, string projectDir)
+    /// <summary>
+    /// The id stored in <c>.state/id</c>, created from the project folder if it isn't there yet.
+    /// </summary>
+    public static string LoadOrCreateId(string stateDir, string projectDir)
     {
         Directory.CreateDirectory(stateDir);
         var idFile = Path.Combine(stateDir, "id");

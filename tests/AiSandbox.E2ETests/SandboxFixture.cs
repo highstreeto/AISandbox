@@ -2,10 +2,11 @@ using System.Diagnostics;
 
 namespace AiSandbox.E2ETests;
 
-/// One throw-away project with a copy of the repo's .sandbox/engine folder, reset before each test:
+/// One throw-away project, reset before each test:
 ///
 ///   <tmp>/demo-project/.git/{config,hooks/}
-///   <tmp>/demo-project/.sandbox/engine/    copy of the repo's engine; sandbox.toml etc. written by Reset()
+///   <tmp>/demo-project/.sandbox/            sandbox.toml, allowlist.txt, .state/id written by Reset();
+///                                           the engine is written to .state/desktop and .state/proxy by the app
 ///   <tmp>/fakebin/docker, xdg-open          the fake docker (see tests/FakeDocker)
 ///   <tmp>/empty/                            a PATH with nothing on it
 public sealed class SandboxFixture : IDisposable
@@ -13,28 +14,34 @@ public sealed class SandboxFixture : IDisposable
     public const string ProjectName = "demo-project";
     public const string Id = "0123abcd";
 
-    public string RepoSandboxDir { get; }
     public string Root { get; }
     public string ProjectDir { get; }
     public string Dir { get; }
     /// The app under test, built from src/AiSandbox along with the tests (ProjectReference).
     public string AppDll { get; }
+    /// The app's version as it writes it into headers and the manifest (AssemblyInformationalVersion).
+    public string AppVersion { get; }
     public string FakeBin { get; }
     public string EmptyBin { get; }
     public string Dotnet { get; }
 
     public string StateDir => Path.Combine(Dir, ".state");
     public string IdFile => Path.Combine(StateDir, "id");
+    public string DesktopContext => Path.Combine(StateDir, "desktop");
+    public string ProxyContext => Path.Combine(StateDir, "proxy");
     public string GeneratedFile => Path.Combine(StateDir, "compose.yml");
     public string ConfFile => Path.Combine(Dir, "sandbox.toml");
+    /// The engine folder of the old layout; tests that need it create it, Reset() removes it.
+    public string OldEngineDir => Path.Combine(Dir, "engine");
     public string OldConfFile => Path.Combine(Dir, "sandbox.yml");
     public string OldLocalConfFile => Path.Combine(Dir, "sandbox.local.yml");
+    /// The templates `sandbox init` writes (the shipped sandbox.toml and allowlist.txt), in the app's sources.
+    public string InitTemplatesDir => Path.Combine(RepoRoot, "src", "AiSandbox", "Resources", "init");
     public string AllowlistFile => Path.Combine(Dir, "allowlist.txt");
     public string WorkDir => $"/work/{ProjectName}-{Id}";
 
     public SandboxFixture()
     {
-        RepoSandboxDir = FindRepoSandboxDir();
         Root = Path.GetFullPath(
             Path.Combine(Path.GetTempPath(), "sandbox-tests-" + Guid.NewGuid().ToString("N")[..8])
         );
@@ -48,8 +55,8 @@ public sealed class SandboxFixture : IDisposable
 
         Directory.CreateDirectory(Dir);
         Directory.CreateDirectory(EmptyBin);
-        CopyDir(Path.Combine(RepoSandboxDir, "engine"), Path.Combine(Dir, "engine"));
         AppDll = BuiltOutput("src/AiSandbox", "sandbox.dll");
+        AppVersion = FileVersionInfo.GetVersionInfo(AppDll).ProductVersion!;
         InstallFakeDocker();
 
         Reset();
@@ -97,6 +104,8 @@ public sealed class SandboxFixture : IDisposable
     {
         File.WriteAllText(ConfFile, DefaultConf.ReplaceLineEndings("\n"));
         File.WriteAllText(AllowlistFile, DefaultAllowlist.ReplaceLineEndings("\n"));
+        if (Directory.Exists(OldEngineDir))
+            Directory.Delete(OldEngineDir, recursive: true);
         File.Delete(OldConfFile);
         File.Delete(OldLocalConfFile);
         if (Directory.Exists(StateDir))
@@ -149,21 +158,6 @@ public sealed class SandboxFixture : IDisposable
             if (File.Exists(Path.Combine(d.FullName, "AiSandbox.slnx")))
                 return d.FullName;
         throw new InvalidOperationException("Could not find the repo root (with AiSandbox.slnx).");
-    }
-
-    /// The repo's .sandbox folder, or the one in $SANDBOX_TESTS_DIR (e.g. a staged copy).
-    static string FindRepoSandboxDir() =>
-        Environment.GetEnvironmentVariable("SANDBOX_TESTS_DIR") is { Length: > 0 } dir
-            ? Path.GetFullPath(dir)
-            : Path.Combine(RepoRoot, ".sandbox");
-
-    static void CopyDir(string from, string to)
-    {
-        Directory.CreateDirectory(to);
-        foreach (var f in Directory.GetFiles(from))
-            File.Copy(f, Path.Combine(to, Path.GetFileName(f)));
-        foreach (var d in Directory.GetDirectories(from))
-            CopyDir(d, Path.Combine(to, Path.GetFileName(d)));
     }
 
     public void Dispose()

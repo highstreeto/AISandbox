@@ -156,6 +156,19 @@ internal static class SandboxCommandLine
         );
         root.Subcommands.Add(resetHome);
 
+        var init = new Command(
+            "init",
+            "Create .sandbox/ (sandbox.toml, allowlist.txt) in a project folder"
+        );
+        var folder = new Argument<string?>("folder")
+        {
+            Arity = ArgumentArity.ZeroOrOne,
+            Description = "Project folder (default: the current directory)",
+        };
+        init.Arguments.Add(folder);
+        init.SetAction(r => Guard(() => MaintenanceCommands.Init(r.GetValue(folder))));
+        root.Subcommands.Add(init);
+
         var info = new Command("info", "Show the project identity, settings and configured tools");
         info.SetAction(r => Run(r, MaintenanceCommands.Info, docker: false));
         root.Subcommands.Add(info);

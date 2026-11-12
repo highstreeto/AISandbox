@@ -1,9 +1,10 @@
 # =============================================================================
 #  Sandbox settings for this project — commit this file.
 # =============================================================================
-#  Apply:          .sandbox/sandbox up          (or .sandbox\sandbox.cmd up)
-#  Tools changed?  .sandbox/sandbox rebuild
-#  Check:          .sandbox/sandbox info        (shows what was read from this file)
+#  Apply:          sandbox up
+#  Tools changed?  sandbox rebuild
+#  Check:          sandbox info        (shows what was read from this file)
+#  Docs:           https://github.com/highstreeto/AISandbox#readme
 
 [project]
 # name = "myproject"        # container group name (default: project folder name)

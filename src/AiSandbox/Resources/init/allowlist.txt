@@ -1,0 +1,86 @@
+# =============================================================================
+#  Sandbox network allowlist — one host per line.
+# =============================================================================
+#  Everything NOT listed here is blocked.
+#
+#  Syntax (shell-style wildcards, case-insensitive):
+#    example.com        exactly example.com
+#    *.example.com      any subdomain (does NOT include example.com itself)
+#  Comments must be on their own line.
+#
+#  Apply changes:        sandbox reload     (restarts the proxy, ~1 s)
+#  Quick add/remove:     sandbox allow example.com
+#                        sandbox deny  example.com
+#  See what was blocked: sandbox blocked
+#  Show entries:         sandbox allowlist -a
+#
+#  This file is read-only inside the sandbox: the agent can't change it.
+# =============================================================================
+
+# --- Claude Desktop / Claude Code (required) --------------------------------
+api.anthropic.com
+claude.ai
+claude.com
+platform.claude.com
+auth.anthropic.com
+s-cdn.anthropic.com
+assets-proxy.anthropic.com
+*.claudeusercontent.com
+*.hcaptcha.com
+downloads.claude.ai          # "sudo apt upgrade" of Claude Desktop / Code inside the sandbox
+*.claudemcpcontent.com       # interactive connector widgets in Claude Desktop
+mcp-proxy.anthropic.com      # claude.ai MCP connectors
+code.claude.com              # built-in docs lookups
+
+# --- GitHub (read-only API + raw files) --------------------------------------
+api.github.com
+raw.githubusercontent.com
+
+# --- Git over HTTPS -----------------------------------------------------------
+# github.com
+# codeload.github.com
+# objects.githubusercontent.com
+
+# --- .NET / NuGet ------------------------------------------------------------
+api.nuget.org
+globalcdn.nuget.org
+# dot.net
+# builds.dotnet.microsoft.com
+
+# --- JavaScript (npm / bun) ---------------------------------------------------
+# registry.npmjs.org
+
+# --- Python (pip) -------------------------------------------------------------
+# pypi.org
+# files.pythonhosted.org
+
+# --- Java (gradle / maven) ---------------------------------------------------
+# services.gradle.org
+# plugins.gradle.org
+# repo.maven.apache.org
+# repo1.maven.org
+
+# --- Ubuntu packages (sudo apt install ... inside the sandbox) ---------------
+# archive.ubuntu.com
+# security.ubuntu.com
+# ports.ubuntu.com
+
+# --- VS Code (runtime install + extension marketplace) -----------------------
+# packages.microsoft.com
+# update.code.visualstudio.com
+# marketplace.visualstudio.com
+# *.gallerycdn.vsassets.io
+# *.vscode-cdn.net
+
+# --- JetBrains (runtime install, IDE downloads, plugins, licensing) ---------
+# data.services.jetbrains.com
+# download.jetbrains.com
+# download-cdn.jetbrains.com
+# plugins.jetbrains.com
+# account.jetbrains.com
+# *.jetbrains.com
+
+# --- Local LLM on the host (Ollama, LM Studio, llama.cpp, ...) --------------
+# Make the server listen on 0.0.0.0 on the host, then use e.g.
+#   http://host.docker.internal:11434   from inside the sandbox.
+# host.docker.internal

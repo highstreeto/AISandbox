@@ -37,7 +37,7 @@ internal static partial class Config
 
     /// <param name="path">sandbox.toml</param>
     /// <param name="projectDir">Relative share paths are resolved against it.</param>
-    /// <param name="dockerfile">engine/desktop/Dockerfile: its <c>ARG INSTALL_*</c> lines are the known tools.</param>
+    /// <param name="dockerfile">The text of the desktop Dockerfile: its <c>ARG INSTALL_*</c> lines are the known tools.</param>
     public static Settings Read(string path, string projectDir, string dockerfile)
     {
         if (!File.Exists(path))
@@ -183,16 +183,15 @@ internal static partial class Config
     /// The INSTALL_* build args the Dockerfile declares, in its order.
     /// </summary>
     public static ImmutableArray<string> KnownTools(string dockerfile) =>
-        File.Exists(dockerfile)
-            ?
-            [
-                .. File.ReadLines(dockerfile)
-                    .Select(l => InstallArgRegex().Match(l))
-                    .Where(m => m.Success)
-                    .Select(m => m.Groups[1].Value)
-                    .Distinct(),
-            ]
-            : [];
+        [
+            .. dockerfile
+                .ReplaceLineEndings("\n")
+                .Split('\n')
+                .Select(l => InstallArgRegex().Match(l))
+                .Where(m => m.Success)
+                .Select(m => m.Groups[1].Value)
+                .Distinct(),
+        ];
 
     /// <summary>
     /// An error about <c>sandbox.toml</c>: the message is prefixed with the file name.

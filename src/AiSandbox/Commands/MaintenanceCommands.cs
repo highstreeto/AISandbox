@@ -1,17 +1,77 @@
 using System.Globalization;
+using System.Text;
 using AiSandbox.Configuration;
 using AiSandbox.Processes;
 using AiSandbox.Project;
+using AiSandbox.Templating;
 using AiSandbox.Terminal;
 using Spectre.Console;
 
 namespace AiSandbox.Commands;
 
 /// <summary>
-/// reset-home and info.
+/// init, reset-home and info.
 /// </summary>
 internal static class MaintenanceCommands
 {
+    /// <summary>
+    /// The files a project owns, created by <c>init</c> from the embedded templates.
+    /// </summary>
+    private static readonly ImmutableArray<string> s_projectFiles =
+    [
+        Config.FileName,
+        "allowlist.txt",
+    ];
+
+    /// <summary>
+    /// Creates <c>&lt;folder&gt;/.sandbox/</c> with <c>sandbox.toml</c> and <c>allowlist.txt</c> (files that exist are
+    /// kept), the <c>.state</c> folder and the engine. Runs without Docker and ignores <c>SANDBOX_DIR</c>.
+    /// </summary>
+    public static int Init(string? folder)
+    {
+        var projectDir = Path.TrimEndingDirectorySeparator(
+            Path.GetFullPath(string.IsNullOrWhiteSpace(folder) ? "." : folder)
+        );
+        if (!Directory.Exists(projectDir))
+            throw new SandboxException($"Folder {projectDir} does not exist.");
+        var dir = Path.Combine(projectDir, ".sandbox");
+
+        for (var parent = Directory.GetParent(projectDir); parent != null; parent = parent.Parent)
+        {
+            var outer = Path.Combine(parent.FullName, ".sandbox");
+            if (Directory.Exists(outer))
+            {
+                Ui.Warn($"{outer} already exists; this creates a separate sandbox for {projectDir}");
+                break;
+            }
+        }
+        Sandbox.CheckOldLayout(dir);
+
+        Directory.CreateDirectory(dir);
+        foreach (var name in s_projectFiles)
+        {
+            var path = Path.Combine(dir, name);
+            if (File.Exists(path))
+            {
+                AnsiConsole.MarkupLine($"[dim]{Markup.Escape(name)} exists \u2014 kept[/]");
+                continue;
+            }
+            File.WriteAllText(path, EmbeddedFiles.ReadText("init/" + name), new UTF8Encoding(false));
+            Ui.Success($"Created .sandbox/{name}");
+        }
+
+        var stateDir = Path.Combine(dir, ".state");
+        Sandbox.WriteStateIgnore(stateDir);
+        Sandbox.LoadOrCreateId(stateDir, projectDir);
+        EngineFiles.Sync(stateDir);
+        Ui.Success("Wrote .sandbox/.state/ (desktop/ and proxy/ show what the sandbox builds)");
+
+        AnsiConsole.MarkupLine(
+            "Next: edit [bold].sandbox/sandbox.toml[/], then \"[bold]sandbox up[/]\"."
+        );
+        return 0;
+    }
+
     public static int ResetHome(Sandbox sb, bool yes)
     {
         if (!yes)
@@ -55,6 +115,10 @@ internal static class MaintenanceCommands
         Row("Workspace", st.ReadOnly ? "read-only" : "read-write");
         Row("Protect .git", st.ProtectGit ? "yes" : "no");
         Row("UI port", st.UiPort?.ToString(CultureInfo.InvariantCulture) ?? "random free port");
+        Row(
+            "Engine",
+            $"sandbox {EngineFiles.ShortAppVersion}, engine {EngineFiles.ShortEngineHash} \u2192 .sandbox/.state/desktop, proxy (rewritten before each command)"
+        );
         AnsiConsole.Write(new Panel(id).Header("[bold] Sandbox [/]").Border(BoxBorder.Rounded));
 
         var desktop = new Grid().AddColumn(new GridColumn().NoWrap().PadRight(3)).AddColumn();

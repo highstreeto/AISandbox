@@ -15,6 +15,15 @@
     <PackageReference Include="Tomlyn" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The engine (compose template, desktop/ and proxy/ build folders) and the init templates. The resource name is
+         the path below Resources/ with forward slashes on every OS, e.g. "desktop/tools/node.sh". -->
+    <EmbeddedResource
+      Include="Resources\**"
+      WithCulture="false"
+      LogicalName="$([System.String]::Copy('%(RecursiveDir)%(Filename)%(Extension)').Replace('\','/'))"
+    />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="System.Collections.Immutable" />
   </ItemGroup>
 </Project>

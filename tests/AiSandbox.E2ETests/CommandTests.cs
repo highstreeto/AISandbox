@@ -281,8 +281,8 @@ public sealed class CommandTests(SandboxFixture f) : SandboxTest(f)
     [Fact]
     public void Repo_config_files_are_valid()
     {
-        File.Copy(Path.Combine(F.RepoSandboxDir, "sandbox.toml"), F.ConfFile, overwrite: true);
-        File.Copy(Path.Combine(F.RepoSandboxDir, "allowlist.txt"), F.AllowlistFile, overwrite: true);
+        File.Copy(Path.Combine(F.InitTemplatesDir, "sandbox.toml"), F.ConfFile, overwrite: true);
+        File.Copy(Path.Combine(F.InitTemplatesDir, "allowlist.txt"), F.AllowlistFile, overwrite: true);
         foreach (var args in new[] { new[] { "info" }, ["allowlist", "-a"], ["status"] })
         {
             var r = Run(args);
@@ -354,7 +354,7 @@ public sealed class CommandTests(SandboxFixture f) : SandboxTest(f)
         var r = Run(["info"], cwd: F.Root, sandboxDir: "");
         AssertExit(r, 1);
         AssertCalls(r);
-        AssertOutput(r, "Could not find the .sandbox folder (with sandbox.toml and engine/).");
+        AssertOutput(r, "Could not find the .sandbox folder (with sandbox.toml).");
     }
 
     [Fact]

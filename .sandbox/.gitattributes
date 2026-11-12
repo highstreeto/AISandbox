@@ -1,3 +1,0 @@
-# Shell scripts and configs must keep LF endings (they run inside Linux containers).
-* text=auto eol=lf
-*.cmd text eol=crlf

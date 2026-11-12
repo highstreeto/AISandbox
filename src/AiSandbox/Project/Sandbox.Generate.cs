@@ -9,7 +9,8 @@ namespace AiSandbox.Project;
 internal sealed partial record Sandbox
 {
     /// <summary>
-    /// Writes <c>.state/compose.yml</c>, the only file docker compose runs with: <c>engine/compose.yml.sbn</c>
+    /// Writes <c>.state/.gitignore</c>, syncs the engine into <c>.state/desktop</c> and <c>.state/proxy</c>, and
+    /// writes <c>.state/compose.yml</c>, the only file docker compose runs with: the embedded <c>compose.yml.sbn</c>
     /// rendered with the settings from <c>sandbox.toml</c> and this machine's facts (user ids, time zone, mounts,
     /// UI port).
     /// </summary>
@@ -19,9 +20,31 @@ internal sealed partial record Sandbox
     /// </remarks>
     public void Generate()
     {
-        var text = ComposeTemplate.Render(TemplatePath, Model());
-        File.WriteAllText(GenPath, text, new UTF8Encoding(false));
+        WriteStateIgnore(StateDir);
+        EngineFiles.Sync(StateDir);
+        var text = ComposeTemplate.Render(
+            EmbeddedFiles.ReadText("compose.yml.sbn"),
+            "compose.yml.sbn",
+            Model()
+        );
+        File.WriteAllText(
+            GenPath,
+            $"# {EngineFiles.HeaderText}\n{text}",
+            new UTF8Encoding(false)
+        );
         File.Delete(Path.Combine(StateDir, "compose.generated.yml")); // left over from the multi-file setup
+    }
+
+    /// <summary>
+    /// <c>.state/.gitignore</c> containing <c>*</c>: the state folder ignores itself, so the project's own
+    /// <c>.gitignore</c> needs no entry.
+    /// </summary>
+    public static void WriteStateIgnore(string stateDir)
+    {
+        Directory.CreateDirectory(stateDir);
+        var path = Path.Combine(stateDir, ".gitignore");
+        if (!File.Exists(path) || File.ReadAllText(path) != "*\n")
+            File.WriteAllText(path, "*\n", new UTF8Encoding(false));
     }
 
     /// <summary>

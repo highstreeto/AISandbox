@@ -243,12 +243,12 @@ public sealed class ErrorTests(SandboxFixture f) : SandboxTest(f)
         var r = Run("status");
         AssertExit(r, 1);
         AssertCalls(r);
-        AssertOutput(r, "which is not a .sandbox folder (with sandbox.toml and engine/).");
+        AssertOutput(r, "which is not a .sandbox folder (with sandbox.toml).");
 
         // Without the launcher's SANDBOX_DIR, the search upwards finds nothing either.
         r = Run(["status"], cwd: F.ProjectDir, sandboxDir: "");
         AssertExit(r, 1);
         AssertCalls(r);
-        AssertOutput(r, "Could not find the .sandbox folder (with sandbox.toml and engine/).");
+        AssertOutput(r, "Could not find the .sandbox folder (with sandbox.toml).");
     }
 }

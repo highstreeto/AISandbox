@@ -18,10 +18,11 @@ macOS, and takes about a minute.
   `$FAKE_DOCKER_RULES`: the first rule whose `when` is a substring of the joined arguments wins.
 - **The app** (`src/AiSandbox`) and the fake docker are built along with the tests (`ProjectReference` without
   referencing the assembly), in the same configuration.
-- **`SandboxFixture`** copies the repo's `.sandbox/engine/` into a temporary `demo-project/.sandbox/` (with a
-  `.git/config` and `.git/hooks`), and resets `sandbox.toml`, `allowlist.txt` and `.state/id` (`0123abcd`) to fixed
-  contents (removing any old `sandbox.yml` / `sandbox.local.yml`) before each test.
-  Set `SANDBOX_TESTS_DIR` to use another copy of the `.sandbox` folder instead of the repo's.
+- **`SandboxFixture`** creates a temporary `demo-project/.sandbox/` (with a `.git/config` and `.git/hooks`), and
+  resets `sandbox.toml`, `allowlist.txt` and `.state/id` (`0123abcd`) to fixed contents before each test (removing any
+  old `sandbox.yml` / `sandbox.local.yml` / `engine/` and the whole `.state/`). The engine is not copied: the app writes
+  it into `.state/desktop` and `.state/proxy` itself, from the files embedded in the assembly. `DesktopContext` and
+  `ProxyContext` point at those folders; `InitTemplatesDir` is the app's `Resources/init` source folder.
 - **`SandboxTest.Run(...)`** runs `dotnet sandbox.dll <args>` with `SANDBOX_DIR` pointing at the test project's
   `.sandbox`, as the launchers do, and with the fake bin directory first on `PATH`. The default rules answer like a
   healthy, running sandbox, and a test can put its own rules in front of them. `cwd` and `sandboxDir: ""` run it
@@ -31,4 +32,6 @@ macOS, and takes about a minute.
 |---|---|
 | `CommandTests.cs` | Every command and alias, its docker calls in order, `-v`, `[project] name`, finding `.sandbox` |
 | `ErrorTests.cs` | Docker missing or not running, failing docker calls, invalid `sandbox.toml` (every check) / hosts, old `sandbox.yml` |
-| `ComposeFileTests.cs` | The generated compose file: exact text, each setting, escaping, shares, template errors |
+| `ComposeFileTests.cs` | The generated compose file: exact text, each setting, escaping, shares |
+| `EngineTests.cs` | The engine written to `.state/desktop` and `.state/proxy`: headers, manifest, hand edits, leftovers, old `engine/` layout, `info` Engine row |
+| `InitTests.cs` | `sandbox init`: created and kept files, `.state`, parent `.sandbox` warning, missing folder, no Docker |
