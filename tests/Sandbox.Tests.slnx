@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="FakeDocker/FakeDocker.csproj" />
-  <Project Path="Sandbox.Tests/Sandbox.Tests.csproj" />
-</Solution>

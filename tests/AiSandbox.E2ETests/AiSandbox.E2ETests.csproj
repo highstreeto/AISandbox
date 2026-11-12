@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <!-- Build the app and the fake docker along with the tests (run as processes, not referenced as assemblies). -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AiSandbox\AiSandbox.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\FakeDocker\FakeDocker.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

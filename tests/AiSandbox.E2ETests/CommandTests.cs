@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Sandbox.Tests;
+namespace AiSandbox.E2ETests;
 
 /// Every command, run against a healthy fake docker: the exact docker calls, in order.
 public sealed class CommandTests(SandboxFixture f) : SandboxTest(f)
@@ -332,5 +332,37 @@ public sealed class CommandTests(SandboxFixture f) : SandboxTest(f)
         r = Run("reset-home", "-y");
         AssertExit(r, 0);
         Assert.Equal(Docker("volume", "rm", "other-name_home").ToString(), r.Calls[^1].ToString());
+    }
+
+    // --- finding the .sandbox folder ---------------------------------------------------
+
+    /// Without SANDBOX_DIR (as when run without the launchers) the app searches upwards from the current directory.
+    [Fact]
+    public void Finds_the_sandbox_folder_from_a_subfolder()
+    {
+        var sub = Path.Combine(F.ProjectDir, "src", "deep");
+        Directory.CreateDirectory(sub);
+        var r = Run(["info"], cwd: sub, sandboxDir: "");
+        AssertExit(r, 0);
+        AssertOutput(r, F.WorkDir);
+        Assert.Contains("api.anthropic.com", Run(["allowlist"], cwd: F.Dir, sandboxDir: "").Lines);
+    }
+
+    [Fact]
+    public void No_sandbox_folder_is_an_error()
+    {
+        var r = Run(["info"], cwd: F.Root, sandboxDir: "");
+        AssertExit(r, 1);
+        AssertCalls(r);
+        AssertOutput(r, "Could not find the .sandbox folder (with sandbox.toml and engine/).");
+    }
+
+    [Fact]
+    public void Sandbox_dir_must_be_a_sandbox_folder()
+    {
+        var r = Run(["status"], sandboxDir: F.ProjectDir);
+        AssertExit(r, 1);
+        AssertCalls(r);
+        AssertOutput(r, $"SANDBOX_DIR is {F.ProjectDir}, which is not a .sandbox folder");
     }
 }

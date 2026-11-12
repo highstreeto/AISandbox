@@ -2,8 +2,9 @@
 
 A KDE Plasma desktop (LinuxServer.io WebTop) in your browser, set up for this project.
 It can only reach hosts you allow and only see the folders you share.
-Copy this `.sandbox/` folder into any project root and commit it. Anyone who clones the
-project gets the same ready-to-develop environment.
+`.sandbox/` holds the project's settings (`sandbox.toml`, `allowlist.txt`) and the engine (`engine/`), and is committed
+with the project. Anyone who clones it gets the same ready-to-develop environment. The control app that runs it lives in
+`src/AiSandbox` of the AI Sandbox repository (later a .NET tool).
 
 ```
  browser ──► 127.0.0.1:<port> ──► gateway ──► desktop (KDE + your tools)
@@ -14,19 +15,21 @@ project gets the same ready-to-develop environment.
 
 ## Start / stop
 
-Run these from anywhere. They don't change your current directory.
+The launchers are in the repository root. They work from any directory and don't change your current directory.
 
 ```bash
-.sandbox/sandbox up          # Linux / macOS / WSL / Git Bash (sh)
-.sandbox\sandbox.cmd up      # Windows (cmd or PowerShell)
-.sandbox/sandbox help up     # help for one command (or: up --help)
+./sandbox up                 # Linux / macOS / WSL / Git Bash (sh)
+sandbox.cmd up               # Windows (cmd or PowerShell)
+./sandbox help up            # help for one command (or: up --help)
 ```
 
-Requires Docker and the **.NET 10 SDK** (10.0.400 or newer, for `#:include`) on the host. The control logic is a
-[.NET file-based app](https://learn.microsoft.com/dotnet/core/sdk/file-based-apps). The entry point is `sandbox.cs`, which holds the commands.
-It pulls in the `sandbox.*.cs` files next to it (project, compose, config, allowlist, proc, ui) with `#:include`. The two files above are
-one-line launchers that run `dotnet run --file sandbox.cs -- <args>`, so every argument reaches the app unchanged.
-The first run (and the first one after `sandbox.cs` changes) restores packages and compiles, which takes a few seconds. Later runs use the cache.
+Requires Docker and the **.NET 10 SDK** on the host. The control app is a normal .NET console project,
+`src/AiSandbox` (solution: `AiSandbox.slnx`). The launchers run `dotnet run --project src/AiSandbox -- <args>` with
+`SANDBOX_DIR` set to the `.sandbox` folder next to them, so every argument reaches the app unchanged.
+The first run (and the first one after the sources change) restores packages and compiles, which takes a few seconds.
+
+Without `SANDBOX_DIR` the app searches upwards from the current directory for a `.sandbox` folder. That is how another
+project uses it for now: from inside that project, run `dotnet run --project <path to AiSandbox>/src/AiSandbox -- up`.
 
 `up` first checks that Docker is running. It then builds the image (several minutes the first time), waits until the KDE desktop is
 actually ready and opens it in your browser. Accept the self-signed certificate.
@@ -111,10 +114,10 @@ One host per line, with wildcards like `*.example.com`. Everything else is block
 
 | | |
 |---|---|
-| `.sandbox/sandbox blocked` | Which hosts were blocked (with counts, and whether they're allowed by now) |
-| `.sandbox/sandbox allow api.nuget.org` | Allow (uncomments an existing entry) and reload in about 1 s |
-| `.sandbox/sandbox deny api.nuget.org` | Comment out and reload |
-| `.sandbox/sandbox allowlist -a` | Allowed hosts by group, plus the commented-out ones ready to enable |
+| `./sandbox blocked` | Which hosts were blocked (with counts, and whether they're allowed by now) |
+| `./sandbox allow api.nuget.org` | Allow (uncomments an existing entry) and reload in about 1 s |
+| `./sandbox deny api.nuget.org` | Comment out and reload |
+| `./sandbox allowlist -a` | Allowed hosts by group, plus the commented-out ones ready to enable |
 
 The file includes ready-made, commented-out groups for NuGet, npm, pip, Gradle/Maven, apt, VS Code marketplace,
 JetBrains, and a local LLM on the host (`host.docker.internal`).
@@ -140,13 +143,14 @@ Still your responsibility: files the agent writes in the project, such as build 
 - It starts with `--no-sandbox` (Electron needs user namespaces, which Docker blocks; the container is the sandbox) and with an explicit proxy flag.
 - Cowork (the VM tab) needs KVM and doesn't work in a container. Chat and Code work.
 - Sign-in is stored in KDE Wallet. If the wallet isn't available, you may need to sign in again after a restart.
-- If Claude Desktop needs a host that isn't listed, check `.sandbox/sandbox blocked`.
+- If Claude Desktop needs a host that isn't listed, check `./sandbox blocked`.
 
 ## Troubleshooting
 
 - **Page blank or error on first open** → `up` waits for KDE, but if the desktop is slow it warns and opens anyway. Reload the page.
 - **"Docker is not running"** → start Docker Desktop.
-- **"dotnet not found"** or a build error from `sandbox.cs` → install the .NET 10 SDK (`dotnet --version` must show 10.x).
+- **"dotnet not found"** or a build error from `src/AiSandbox` → install the .NET 10 SDK (`dotnet --version` must show 10.x).
+- **"Could not find the .sandbox folder"** → run it through the launchers, or from inside a project that has a `.sandbox` folder.
 - **"Another project already uses the container group"** → two projects have the same folder name. Set `name` under `[project]`.
 - **GUI apps crash** → under `[desktop]`, set `security_opt = ["seccomp=unconfined"]`.
 - **GPU (Intel/AMD, Linux)** → under `[desktop]`, set `devices = ["/dev/dri:/dev/dri"]`.

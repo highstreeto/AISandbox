@@ -41,12 +41,12 @@ if (Environment.GetEnvironmentVariable("FAKE_DOCKER_RULES") is { Length: > 0 } r
 }
 return 0;
 
-record Call(
+sealed record Call(
     [property: System.Text.Json.Serialization.JsonPropertyName("name")] string Name,
     [property: System.Text.Json.Serialization.JsonPropertyName("args")] string[] Args
 );
 
-record Rule(
+sealed record Rule(
     [property: System.Text.Json.Serialization.JsonPropertyName("when")] string? When,
     [property: System.Text.Json.Serialization.JsonPropertyName("stdout")] string? Stdout,
     [property: System.Text.Json.Serialization.JsonPropertyName("stderr")] string? Stderr,

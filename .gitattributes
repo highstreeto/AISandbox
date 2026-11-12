@@ -1,1 +1,2 @@
 sandbox text=auto eol=lf
+*.cmd text eol=crlf

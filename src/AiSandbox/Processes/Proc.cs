@@ -1,36 +1,21 @@
-// Child processes (captured or attached to the terminal) and native user ids.
+using System.ComponentModel;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Spectre.Console;
 
-sealed record ProcResult(int ExitCode, string StdOut, string StdErr)
+namespace AiSandbox.Processes;
+
+/// <summary>
+/// Child processes: captured, or attached to this terminal.
+/// </summary>
+internal static class Proc
 {
-    public IEnumerable<string> Lines() =>
-        StdOut.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-}
-
-static class Proc
-{
-    static ProcessStartInfo Info(string file, IEnumerable<string> args)
-    {
-        var psi = new ProcessStartInfo(file) { UseShellExecute = false };
-        foreach (var a in args)
-            psi.ArgumentList.Add(a);
-        return psi;
-    }
-
-    static void Trace(bool verbose, string file, string[] args)
-    {
-        if (verbose)
-            AnsiConsole.MarkupLine(
-                $"[dim]$ {Markup.Escape(file + " " + string.Join(' ', args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a)))}[/]"
-            );
-    }
-
-    public static ProcResult Capture(bool verbose, string file, params string[] args)
+    /// <summary>
+    /// Runs a process with its output captured and no input. A missing executable gives exit code 127.
+    /// </summary>
+    public static ProcResult Capture(bool verbose, string file, params ReadOnlySpan<string> args)
     {
         Trace(verbose, file, args);
-        var psi = Info(file, args);
+        var psi = StartInfo(file, args);
         psi.RedirectStandardOutput = psi.RedirectStandardError = true;
         psi.RedirectStandardInput = true;
         try
@@ -42,25 +27,27 @@ static class Proc
             p.WaitForExit();
             return new ProcResult(p.ExitCode, stdout.Result, stderr.Result);
         }
-        catch (System.ComponentModel.Win32Exception e)
+        catch (Win32Exception e)
         {
             return new ProcResult(127, "", e.Message);
         }
     }
 
+    /// <summary>
     /// Attached to the terminal. Ctrl+C goes to the child (logs -f, shell); we just wait for it to finish.
-    public static int Interactive(bool verbose, string file, params string[] args)
+    /// </summary>
+    public static int Interactive(bool verbose, string file, params ReadOnlySpan<string> args)
     {
         Trace(verbose, file, args);
         ConsoleCancelEventHandler keepAlive = (_, e) => e.Cancel = true;
         Console.CancelKeyPress += keepAlive;
         try
         {
-            using var p = Process.Start(Info(file, args))!;
+            using var p = Process.Start(StartInfo(file, args))!;
             p.WaitForExit();
             return p.ExitCode;
         }
-        catch (System.ComponentModel.Win32Exception e)
+        catch (Win32Exception e)
         {
             throw new SandboxException($"Could not run {file}: {e.Message}");
         }
@@ -70,6 +57,9 @@ static class Proc
         }
     }
 
+    /// <summary>
+    /// The full path of an executable on PATH (with PATHEXT on Windows), or null.
+    /// </summary>
     public static string? Which(string name)
     {
         var exts = OperatingSystem.IsWindows()
@@ -91,29 +81,23 @@ static class Proc
         }
         return null;
     }
-}
 
-static class Native
-{
-    [DllImport("libc", EntryPoint = "getuid")]
-    static extern uint getuid();
-
-    [DllImport("libc", EntryPoint = "getgid")]
-    static extern uint getgid();
-
-    /// The host user's ids for PUID/PGID (1000 on Windows, and never root).
-    public static (uint Uid, uint Gid) UserIds()
+    private static ProcessStartInfo StartInfo(string file, ReadOnlySpan<string> args)
     {
-        if (OperatingSystem.IsWindows())
-            return (1000, 1000);
-        try
-        {
-            var (u, g) = (getuid(), getgid());
-            return u == 0 ? (1000, 1000) : (u, g);
-        }
-        catch (Exception)
-        {
-            return (1000, 1000);
-        }
+        var psi = new ProcessStartInfo(file) { UseShellExecute = false };
+        foreach (var a in args)
+            psi.ArgumentList.Add(a);
+        return psi;
+    }
+
+    private static void Trace(bool verbose, string file, ReadOnlySpan<string> args)
+    {
+        if (!verbose)
+            return;
+        var parts = new string[args.Length + 1];
+        parts[0] = file;
+        for (var i = 0; i < args.Length; i++)
+            parts[i + 1] = args[i].Contains(' ', StringComparison.Ordinal) ? $"\"{args[i]}\"" : args[i];
+        AnsiConsole.MarkupLine($"[dim]$ {Markup.Escape(string.Join(' ', parts))}[/]");
     }
 }

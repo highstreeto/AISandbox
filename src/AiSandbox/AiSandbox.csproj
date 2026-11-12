@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- AI Sandbox control app: a desktop for a project, reachable only through an allowlist proxy. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>AiSandbox</RootNamespace>
+    <!-- The command name in the help output (and later the tool command). -->
+    <AssemblyName>sandbox</AssemblyName>
+    <!-- [LibraryImport] (getuid/getgid) needs it; no unsafe code is written by hand. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Scriban" />
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Tomlyn" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="System.Collections.Immutable" />
+  </ItemGroup>
+</Project>

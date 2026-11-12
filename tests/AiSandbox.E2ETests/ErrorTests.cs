@@ -1,4 +1,4 @@
-namespace Sandbox.Tests;
+namespace AiSandbox.E2ETests;
 
 /// Docker missing or failing, invalid configuration: the right message, exit code 1, and no further docker calls.
 public sealed class ErrorTests(SandboxFixture f) : SandboxTest(f)
@@ -241,6 +241,12 @@ public sealed class ErrorTests(SandboxFixture f) : SandboxTest(f)
     {
         File.Delete(F.ConfFile);
         var r = Run("status");
+        AssertExit(r, 1);
+        AssertCalls(r);
+        AssertOutput(r, "which is not a .sandbox folder (with sandbox.toml and engine/).");
+
+        // Without the launcher's SANDBOX_DIR, the search upwards finds nothing either.
+        r = Run(["status"], cwd: F.ProjectDir, sandboxDir: "");
         AssertExit(r, 1);
         AssertCalls(r);
         AssertOutput(r, "Could not find the .sandbox folder (with sandbox.toml and engine/).");

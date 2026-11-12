@@ -1,11 +1,11 @@
 using System.Diagnostics;
 
-namespace Sandbox.Tests;
+namespace AiSandbox.E2ETests;
 
-/// One throw-away project with a copy of the repo's .sandbox folder, built once and reset before each test:
+/// One throw-away project with a copy of the repo's .sandbox/engine folder, reset before each test:
 ///
 ///   <tmp>/demo-project/.git/{config,hooks/}
-///   <tmp>/demo-project/.sandbox/...        copy of the repo's .sandbox (without .state)
+///   <tmp>/demo-project/.sandbox/engine/    copy of the repo's engine; sandbox.toml etc. written by Reset()
 ///   <tmp>/fakebin/docker, xdg-open          the fake docker (see tests/FakeDocker)
 ///   <tmp>/empty/                            a PATH with nothing on it
 public sealed class SandboxFixture : IDisposable
@@ -17,7 +17,8 @@ public sealed class SandboxFixture : IDisposable
     public string Root { get; }
     public string ProjectDir { get; }
     public string Dir { get; }
-    public string EntryFile => Path.Combine(Dir, "sandbox.cs");
+    /// The app under test, built from src/AiSandbox along with the tests (ProjectReference).
+    public string AppDll { get; }
     public string FakeBin { get; }
     public string EmptyBin { get; }
     public string Dotnet { get; }
@@ -47,13 +48,11 @@ public sealed class SandboxFixture : IDisposable
 
         Directory.CreateDirectory(Dir);
         Directory.CreateDirectory(EmptyBin);
-        foreach (var f in Directory.GetFiles(RepoSandboxDir, "*.cs"))
-            File.Copy(f, Path.Combine(Dir, Path.GetFileName(f)));
         CopyDir(Path.Combine(RepoSandboxDir, "engine"), Path.Combine(Dir, "engine"));
+        AppDll = BuiltOutput("src/AiSandbox", "sandbox.dll");
         InstallFakeDocker();
 
         Reset();
-        Build();
     }
 
     /// A fixed sandbox.toml (not the repo's, which people edit) in the shipped format.
@@ -110,35 +109,23 @@ public sealed class SandboxFixture : IDisposable
         File.WriteAllText(Path.Combine(git, "config"), "[core]\n\tbare = false\n");
     }
 
-    void Build()
-    {
-        var psi = new ProcessStartInfo(Dotnet)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            WorkingDirectory = Root,
-        };
-        foreach (var a in new[] { "build", EntryFile, "--nologo", "-v", "q" })
-            psi.ArgumentList.Add(a);
-        using var p = Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEndAsync();
-        var stderr = p.StandardError.ReadToEndAsync();
-        p.WaitForExit();
-        if (p.ExitCode != 0)
-            throw new InvalidOperationException(
-                $"Building {EntryFile} failed:\n{stdout.Result}\n{stderr.Result}"
-            );
-    }
-
-    /// The fake docker is built with this project (ProjectReference); copy it as `docker` and `xdg-open`.
-    void InstallFakeDocker()
+    /// A file in the build output of another project of the repo, built with this one (ProjectReference),
+    /// in the same configuration and target framework as the tests.
+    static string BuiltOutput(string project, string file)
     {
         var testBin = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
         var tfm = testBin.Name; // net10.0
         var config = testBin.Parent!.Name; // Debug / Release
-        var src = Path.Combine(RepoRoot, "tests", "FakeDocker", "bin", config, tfm);
-        if (!File.Exists(Path.Combine(src, "docker.dll")))
-            throw new InvalidOperationException($"Fake docker not built: {src}");
+        var path = Path.Combine(RepoRoot, project, "bin", config, tfm, file);
+        return File.Exists(path)
+            ? path
+            : throw new InvalidOperationException($"{project} not built: {path} is missing.");
+    }
+
+    /// The fake docker, copied as `docker` and `xdg-open`.
+    void InstallFakeDocker()
+    {
+        var src = Path.GetDirectoryName(BuiltOutput("tests/FakeDocker", "docker.dll"))!;
 
         Directory.CreateDirectory(FakeBin);
         var exe = OperatingSystem.IsWindows() ? ".exe" : "";
@@ -153,21 +140,22 @@ public sealed class SandboxFixture : IDisposable
         }
     }
 
-    string RepoRoot => Path.GetDirectoryName(RepoSandboxDir)!;
+    static string RepoRoot { get; } = FindRepoRoot();
+
+    /// The folder with AiSandbox.slnx.
+    static string FindRepoRoot()
+    {
+        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
+            if (File.Exists(Path.Combine(d.FullName, "AiSandbox.slnx")))
+                return d.FullName;
+        throw new InvalidOperationException("Could not find the repo root (with AiSandbox.slnx).");
+    }
 
     /// The repo's .sandbox folder, or the one in $SANDBOX_TESTS_DIR (e.g. a staged copy).
-    static string FindRepoSandboxDir()
-    {
-        if (Environment.GetEnvironmentVariable("SANDBOX_TESTS_DIR") is { Length: > 0 } dir)
-            return Path.GetFullPath(dir);
-        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
-        {
-            var s = Path.Combine(d.FullName, ".sandbox");
-            if (File.Exists(Path.Combine(s, "sandbox.cs")))
-                return s;
-        }
-        throw new InvalidOperationException("Could not find the repo's .sandbox folder.");
-    }
+    static string FindRepoSandboxDir() =>
+        Environment.GetEnvironmentVariable("SANDBOX_TESTS_DIR") is { Length: > 0 } dir
+            ? Path.GetFullPath(dir)
+            : Path.Combine(RepoRoot, ".sandbox");
 
     static void CopyDir(string from, string to)
     {

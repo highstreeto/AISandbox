@@ -1,2 +1,4 @@
 #!/bin/sh
-exec dotnet run --file ".sandbox/sandbox.cs" -- "$@"
+# AI Sandbox launcher (Linux, macOS, WSL, Git Bash). Works from any directory; see .sandbox/README.md.
+root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+SANDBOX_DIR="$root/.sandbox" exec dotnet run --project "$root/src/AiSandbox" --no-launch-profile -v q -- "$@"

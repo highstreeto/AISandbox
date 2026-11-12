@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 
-namespace Sandbox.Tests;
+namespace AiSandbox.E2ETests;
 
 public sealed record Call(string Name, string[] Args)
 {
@@ -53,14 +53,18 @@ public abstract class SandboxTest
             new("ps -a --format json", PsJson),
         ];
 
-    /// Run the app (`dotnet run --file sandbox.cs --no-build -- args`), like the launchers do.
+    /// Run the built app (`dotnet sandbox.dll args`) with `SANDBOX_DIR` set, like the launchers do.
     /// `rules` are checked before the defaults. `path` replaces the fake bin dir on PATH.
     /// `waitFor`: a call that a detached child makes after the app has exited (the browser opener).
+    /// `cwd`: the working directory (default: the temp root, outside the project).
+    /// `sandboxDir`: the value of `SANDBOX_DIR` (default: the project's .sandbox; "" leaves it unset).
     protected RunResult Run(
         string[] args,
         Rule[]? rules = null,
         string? path = null,
-        string? waitFor = null
+        string? waitFor = null,
+        string? cwd = null,
+        string? sandboxDir = null
     )
     {
         // A fresh log per run: a detached child of an earlier run can't write into this one.
@@ -84,9 +88,9 @@ public abstract class SandboxTest
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             RedirectStandardInput = true,
-            WorkingDirectory = F.Root,
+            WorkingDirectory = cwd ?? F.Root,
         };
-        foreach (var a in new[] { "run", "--file", F.EntryFile, "--no-build", "--" }.Concat(args))
+        foreach (var a in args.Prepend(F.AppDll))
             psi.ArgumentList.Add(a);
         psi.Environment["PATH"] =
             path ?? F.FakeBin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
@@ -96,6 +100,11 @@ public abstract class SandboxTest
         psi.Environment["COLUMNS"] = "200";
         psi.Environment["NO_COLOR"] = "1";
         psi.Environment.Remove("DOCKER_HOST");
+        sandboxDir ??= F.Dir;
+        if (sandboxDir.Length > 0)
+            psi.Environment["SANDBOX_DIR"] = sandboxDir;
+        else
+            psi.Environment.Remove("SANDBOX_DIR");
 
         using var p = Process.Start(psi)!;
         p.StandardInput.Close();

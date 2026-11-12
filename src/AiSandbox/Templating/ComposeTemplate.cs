@@ -1,13 +1,20 @@
-// Renders engine/compose.yml.sbn (a Scriban template) into the one compose file docker compose runs with.
-//
-// The template holds every service, network and hardening setting literally; only the values that come
-// from sandbox.toml or this machine are expressions. Text values go through `q`, which writes a quoted
-// YAML string, so a path like C:\Users\x or a value containing ": #" can't break or inject YAML.
+using System.Globalization;
 using System.Text;
 using Scriban;
 using Scriban.Runtime;
+using Scriban.Syntax;
 
-static class ComposeTemplate
+namespace AiSandbox.Templating;
+
+/// <summary>
+/// Renders <c>engine/compose.yml.sbn</c> (a Scriban template) into the one compose file docker compose runs with.
+/// </summary>
+/// <remarks>
+/// The template holds every service, network and hardening setting literally; only the values that come from
+/// <c>sandbox.toml</c> or this machine are expressions. Text values go through <c>q</c>, which writes a quoted YAML
+/// string, so a path like <c>C:\Users\x</c> or a value containing <c>": #"</c> can't break or inject YAML.
+/// </remarks>
+internal static class ComposeTemplate
 {
     public static string Render(string templatePath, ScriptObject model)
     {
@@ -19,28 +26,34 @@ static class ComposeTemplate
             );
 
         var globals = new ScriptObject();
-        globals.Import("q", new Func<object?, string>(Q));
-        var context = new TemplateContext { StrictVariables = true, EnableRelaxedMemberAccess = false };
+        globals.Import("q", new Func<object?, string>(Quote));
+        var context = new TemplateContext
+        {
+            StrictVariables = true,
+            EnableRelaxedMemberAccess = false,
+        };
         context.PushGlobal(globals);
         context.PushGlobal(model);
         try
         {
             return template.Render(context).ReplaceLineEndings("\n");
         }
-        catch (Scriban.Syntax.ScriptRuntimeException e)
+        catch (ScriptRuntimeException e)
         {
             throw new SandboxException($"engine/{name}: {e.Message}");
         }
     }
 
+    /// <summary>
     /// A double-quoted YAML scalar: backslash, quote and control characters escaped.
-    public static string Q(object? value)
+    /// </summary>
+    private static string Quote(object? value)
     {
         var s = value switch
         {
             null => "",
             bool b => b ? "true" : "false",
-            IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+            IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
             _ => value.ToString() ?? "",
         };
         var sb = new StringBuilder(s.Length + 2).Append('"');
@@ -63,7 +76,7 @@ static class ComposeTemplate
                     sb.Append(@"\t");
                     break;
                 case < ' ' or '\u007f' or '\u0085' or '\u2028' or '\u2029':
-                    sb.Append($"\\u{(int)c:x4}");
+                    sb.Append(CultureInfo.InvariantCulture, $"\\u{(int)c:x4}");
                     break;
                 default:
                     sb.Append(c);

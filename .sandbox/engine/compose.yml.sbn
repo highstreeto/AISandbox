@@ -1,7 +1,7 @@
 {{~
 # AI Sandbox engine — the template for .state/compose.yml. You normally don't edit this file.
 # Project settings live in ../sandbox.toml, the network allowlist in ../allowlist.txt.
-# ../sandbox (or ../sandbox.cmd → ../sandbox.cs) renders it with the settings from sandbox.toml and this
+# The sandbox app (src/AiSandbox) renders it with the settings from sandbox.toml and this
 # machine's facts into .state/compose.yml, the one file docker compose is started with.
 #
 #   host browser ──► 127.0.0.1:<port> ──► gateway ──► desktop (KDE)

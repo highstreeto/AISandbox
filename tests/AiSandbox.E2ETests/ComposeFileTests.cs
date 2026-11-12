@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using YamlDotNet.RepresentationModel;
 
-namespace Sandbox.Tests;
+namespace AiSandbox.E2ETests;
 
 /// The generated compose file (.state/compose.yml): engine/compose.yml.sbn rendered with sandbox.toml and
 /// the host settings into the one file docker compose runs with.
@@ -60,7 +60,7 @@ public sealed class ComposeFileTests(SandboxFixture f) : SandboxTest(f)
     static string[] Keys(YamlNode n) =>
         Assert.IsType<YamlMappingNode>(n).Children.Keys.Select(k => ((YamlScalarNode)k).Value!).ToArray();
 
-    record Bind(string Source, string Target, bool ReadOnly);
+    sealed record Bind(string Source, string Target, bool ReadOnly);
 
     /// The bind mounts of the desktop (the generated project mounts; home and the tmpfs placeholder skipped).
     static List<Bind> Binds(YamlNode root) =>
