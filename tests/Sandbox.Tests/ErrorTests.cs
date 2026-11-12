@@ -170,17 +170,38 @@ public sealed class ErrorTests(SandboxFixture f) : SandboxTest(f)
     }
 
     [Theory]
-    [InlineData("x-sandbox:\n  workspace_mode: rx\n", "x-sandbox.workspace_mode must be 'rw' or 'ro' (got 'rx').")]
-    [InlineData("x-sandbox:\n  protect_git: maybe\n", "x-sandbox.protect_git must be true or false (got 'maybe').")]
-    [InlineData("x-sandbox:\n  ui_port: abc\n", "x-sandbox.ui_port must be a port number (got 'abc').")]
-    [InlineData("x-sandbox:\n  ui_port: 70000\n", "x-sandbox.ui_port must be a port number (got '70000').")]
-    [InlineData("x-sandbox: [1, 2]\n", "sandbox.yml: x-sandbox must be a mapping.")]
-    [InlineData("x-sandbox:\n  workspace_mode: [rw]\n", "sandbox.yml: x-sandbox.workspace_mode must be a single value.")]
-    [InlineData("- just\n- a list\n", "sandbox.yml must be a YAML mapping.")]
-    [InlineData("services:\n  desktop: [\n", "sandbox.yml is not valid YAML (line")]
-    public void Invalid_sandbox_yml(string yaml, string message)
+    [InlineData("[project]\nworkspace = \"rx\"\n", "sandbox.toml: project.workspace must be \"rw\" or \"ro\" (got \"rx\").")]
+    [InlineData("[project]\nprotect_git = \"maybe\"\n", "sandbox.toml: project.protect_git must be true or false (got \"maybe\").")]
+    [InlineData("[project]\nui_port = \"abc\"\n", "sandbox.toml: project.ui_port must be a whole number (got \"abc\").")]
+    [InlineData("[project]\nui_port = 70000\n", "sandbox.toml: project.ui_port must be a port number from 1 to 65535 (got 70000).")]
+    [InlineData("[project]\nworkspace_mode = \"ro\"\n", "sandbox.toml: unknown key 'project.workspace_mode' (known: name, workspace, protect_git, ui_port).")]
+    [InlineData("[tool]\nnode = 24\n", "sandbox.toml: unknown setting 'tool' (known: project, tools, desktop, env, share).")]
+    [InlineData("project = 1\n", "sandbox.toml: project must be a table (got 1).")]
+    [InlineData("[tools]\nnodejs = 24\n", "sandbox.toml: unknown tool tools.nodejs (known: apt, claude, claude_code, dotnet, node, bun, vscode, jetbrains).")]
+    [InlineData("[tools]\ndotnet = 10.0\n", "sandbox.toml: tools.dotnet = 10.0: write versions as text, e.g. \"10.0\"")]
+    [InlineData("[tools]\napt = [true]\n", "sandbox.toml: tools.apt must be a list of names or versions.")]
+    [InlineData("[desktop]\nmemory = \"lots\"\n", "sandbox.toml: desktop.memory must be a size like \"8g\" or \"512m\" (got \"lots\").")]
+    [InlineData("[desktop]\ncpus = 0\n", "sandbox.toml: desktop.cpus must be greater than 0 (got 0.0).")]
+    [InlineData("[desktop]\ndevices = \"/dev/dri\"\n", "sandbox.toml: desktop.devices must be a list of texts, e.g. [\"a\", \"b\"] (got \"/dev/dri\").")]
+    [InlineData("[desktop]\nauth = { user = \"me\" }\n", "sandbox.toml: desktop.auth needs both user and password.")]
+    [InlineData("[desktop.auth]\nuser = \"me\"\npassword = \"x\"\nemail = \"m\"\n", "sandbox.toml: unknown key 'desktop.auth.email' (known: user, password).")]
+    [InlineData("[env]\nHTTP_PROXY = \"http://evil\"\n", "sandbox.toml: env.HTTP_PROXY is set by the sandbox and can't be changed.")]
+    [InlineData("[env]\nno_proxy = \"*\"\n", "sandbox.toml: env.no_proxy is set by the sandbox and can't be changed.")]
+    [InlineData("[env]\nTZ = \"UTC\"\n", "sandbox.toml: env.TZ is set by the sandbox; use desktop.timezone instead.")]
+    [InlineData("[env]\n\"MY-VAR\" = \"x\"\n", "sandbox.toml: env.MY-VAR is not a valid environment variable name.")]
+    [InlineData("[env]\nX = [1]\n", "sandbox.toml: env.X must be a text, number or true/false (got a list).")]
+    [InlineData("[[share]]\npath = \"/x\"\n", "sandbox.toml: share #1 needs host = \"<folder on this machine>\".")]
+    [InlineData("[[share]]\nhost = \"../missing\"\n", "sandbox.toml: share #1: ../missing does not exist")]
+    [InlineData("[[share]]\nhost = \".git\"\npath = \"rel\"\n", "sandbox.toml: share #1: path must be absolute (got \"rel\").")]
+    [InlineData("[[share]]\nhost = \".git\"\npath = \"/work/x\"\n", "sandbox.toml: share #1: path /work/x is reserved")]
+    [InlineData("[[share]]\nhost = \".git\"\npath = \"/config\"\n", "sandbox.toml: share #1: path /config is reserved")]
+    [InlineData("[[share]]\nhost = \".git\"\n[[share]]\nhost = \".git/hooks\"\npath = \"/shares/.git\"\n", "sandbox.toml: share #2: path /shares/.git is used twice.")]
+    [InlineData("[[share]]\nhost = \".git\"\nro = true\n", "sandbox.toml: unknown key 'share.ro' (known: host, path, readonly).")]
+    [InlineData("share = { host = \".git\" }\n", "sandbox.toml: share must be written as [[share]] blocks (got a table).")]
+    [InlineData("[project]\nworkspace = \n", "sandbox.toml is not valid TOML (line 2, column 13):")]
+    public void Invalid_sandbox_toml(string toml, string message)
     {
-        WriteConf(yaml);
+        WriteConf(toml);
         foreach (var cmd in new[] { "status", "info" })
         {
             var r = Run(cmd);
@@ -192,12 +213,36 @@ public sealed class ErrorTests(SandboxFixture f) : SandboxTest(f)
     }
 
     [Fact]
-    public void Invalid_sandbox_local_yml()
+    public void Old_sandbox_yml_is_reported_with_the_key_mapping()
     {
-        WriteLocalConf("x-sandbox:\n  workspace_mode: rx\n");
+        File.Delete(F.ConfFile);
+        File.WriteAllText(F.OldConfFile, "x-sandbox:\n  workspace_mode: rw\n");
         var r = Run("up", "--no-open");
         AssertExit(r, 1);
         AssertCalls(r);
-        AssertOutput(r, "x-sandbox.workspace_mode must be 'rw' or 'ro' (got 'rx').");
+        AssertOutput(r, "sandbox.yml is no longer read. Move its settings to sandbox.toml");
+        AssertOutput(r, "→ [tools] <tool>");
+    }
+
+    [Fact]
+    public void Leftover_yml_files_are_ignored_with_a_warning()
+    {
+        File.WriteAllText(F.OldConfFile, "x-sandbox:\n  workspace_mode: ro\n");
+        File.WriteAllText(F.OldLocalConfFile, "x-sandbox:\n  workspace_mode: ro\n");
+        var r = Run("status");
+        AssertExit(r, 0);
+        AssertOutput(r, "sandbox.yml is ignored");
+        AssertOutput(r, "sandbox.local.yml is no longer read");
+        Assert.Contains("read_only: false}", File.ReadAllText(F.GeneratedFile));
+    }
+
+    [Fact]
+    public void Missing_sandbox_toml()
+    {
+        File.Delete(F.ConfFile);
+        var r = Run("status");
+        AssertExit(r, 1);
+        AssertCalls(r);
+        AssertOutput(r, "Could not find the .sandbox folder (with sandbox.toml and engine/).");
     }
 }

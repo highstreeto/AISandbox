@@ -190,7 +190,5 @@ public abstract class SandboxTest
     protected static void AssertOutput(RunResult r, string text) =>
         Assert.True(r.Output.Contains(text), $"Expected output to contain '{text}'.\n{r}");
 
-    protected void WriteConf(string yaml) => File.WriteAllText(F.ConfFile, yaml);
-
-    protected void WriteLocalConf(string yaml) => File.WriteAllText(F.LocalConfFile, yaml);
+    protected void WriteConf(string toml) => File.WriteAllText(F.ConfFile, toml);
 }

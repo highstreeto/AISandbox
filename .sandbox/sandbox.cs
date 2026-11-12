@@ -8,13 +8,14 @@
 // This file: the entry point, the command line and what each command does.
 // The rest lives next to it and is pulled in with #:include:
 //   sandbox.project.cs    project identity, docker compose calls, the generated compose file
-//   sandbox.compose.cs    merging the compose layers into that one file
-//   sandbox.config.cs     sandbox.yml / sandbox.local.yml settings
+//   sandbox.compose.cs    rendering engine/compose.yml.sbn into that one file
+//   sandbox.config.cs     sandbox.toml settings
 //   sandbox.allowlist.cs  allowlist.txt
 //   sandbox.proc.cs       child processes, native user ids
 //   sandbox.ui.cs         terminal output
 #:package System.CommandLine@2.0.15
-#:package YamlDotNet@18.1.0
+#:package Tomlyn@2.11.1
+#:package Scriban@7.6.1
 #:package Spectre.Console@0.57.2
 #:property Nullable=enable
 #:property PublishAot=false
@@ -29,7 +30,6 @@ using System.CommandLine;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Spectre.Console;
-using YamlDotNet.Core;
 
 try
 {
@@ -104,7 +104,7 @@ static class Cli
         // Runs before parsing (see the top of this file); declared here for --help only.
         var claude = new Command(
             "claude",
-            "Claude Code CLI inside the sandbox (needs INSTALL_CLAUDE_CODE); all arguments are passed on"
+            "Claude Code CLI inside the sandbox (needs claude_code under [tools]); all arguments are passed on"
         );
         claude.Arguments.Add(Many("args", "Arguments for claude"));
         claude.TreatUnmatchedTokensAsErrors = false;
@@ -178,7 +178,7 @@ static class Cli
         root.Subcommands.Add(reload);
 
         // --- Maintenance ------------------------------------------------------
-        var rebuild = new Command("rebuild", "Rebuild after changing INSTALL_* in sandbox.yml");
+        var rebuild = new Command("rebuild", "Rebuild after changing [tools] in sandbox.toml");
         rebuild.SetAction(r => Run(r, sb => Commands.Rebuild(sb, pull: false)));
         root.Subcommands.Add(rebuild);
 
@@ -231,13 +231,6 @@ static class Cli
         catch (SandboxException e)
         {
             Ui.Error(e.Message);
-            return 1;
-        }
-        catch (YamlException e)
-        {
-            Ui.Error(
-                $"sandbox.yml is not valid YAML (line {e.Start.Line}, column {e.Start.Column}): {e.Message}"
-            );
             return 1;
         }
     }
@@ -423,7 +416,7 @@ static class Commands
         sb.NeedDocker();
         sb.Generate();
         const string script =
-            "command -v claude >/dev/null || { echo \"Claude Code CLI not installed: set INSTALL_CLAUDE_CODE in sandbox.yml and rebuild.\"; exit 1; }; exec claude \"$@\"";
+            "command -v claude >/dev/null || { echo \"Claude Code CLI not installed: set claude_code under [tools] in sandbox.toml and rebuild.\"; exit 1; }; exec claude \"$@\"";
         return sb.Exec(["sh", "-c", script, "claude", .. args]);
     }
 
@@ -593,28 +586,44 @@ static class Commands
 
     public static int Info(Sandbox sb)
     {
+        var st = sb.Settings;
         var id = new Grid().AddColumn(new GridColumn().NoWrap().PadRight(3)).AddColumn();
         void Row(string k, string v) => id.AddRow($"[bold]{k}[/]", Markup.Escape(v));
         Row("Project", sb.Name);
         Row("Project folder", sb.ProjectDir);
         Row("Mounted at", sb.WorkDir);
         Row("ID", sb.Id);
-        Row("Workspace", sb.Settings.ReadOnly ? "read-only" : "read-write");
-        Row("Protect .git", sb.Settings.ProtectGit ? "yes" : "no");
-        Row("UI port", sb.Settings.UiPort?.ToString() ?? "random free port");
-        Row("Local overrides", File.Exists(sb.LocalConfPath) ? "sandbox.local.yml" : "none");
+        Row("Workspace", st.ReadOnly ? "read-only" : "read-write");
+        Row("Protect .git", st.ProtectGit ? "yes" : "no");
+        Row("UI port", st.UiPort?.ToString() ?? "random free port");
         AnsiConsole.Write(new Panel(id).Header("[bold] Sandbox [/]").Border(BoxBorder.Rounded));
+
+        var desktop = new Grid().AddColumn(new GridColumn().NoWrap().PadRight(3)).AddColumn();
+        void D(string k, string v) => desktop.AddRow($"[bold]{k}[/]", Markup.Escape(v));
+        D("Title", st.Title);
+        D("Sudo", st.Sudo ? "yes" : "no");
+        D("Memory", st.Memory);
+        D("CPUs", st.Cpus ?? "no limit");
+        D("Time zone", st.TimeZone ?? "from this machine");
+        D("Login", st.Auth is { } a ? $"basic auth ({a.User})" : "none");
+        if (st.Devices.Count > 0)
+            D("Devices", string.Join(", ", st.Devices));
+        if (st.SecurityOpt.Count > 0)
+            D("Security options", string.Join(", ", st.SecurityOpt));
+        foreach (var (k, v) in st.Env)
+            D("$" + k, v);
+        AnsiConsole.Write(new Panel(desktop).Header("[bold] Desktop [/]").Border(BoxBorder.Rounded));
 
         var tools = new Table()
             .Border(TableBorder.Rounded)
-            .Title("[bold]Tools (INSTALL_*)[/]")
+            .Title("[bold]Tools [[tools]][/]")
             .AddColumn("Tool")
             .AddColumn("Value");
-        foreach (var (k, v) in sb.Settings.Install)
+        foreach (var (k, v) in st.Install)
         {
             var off = v is "" or "false";
             tools.AddRow(
-                Markup.Escape(k["INSTALL_".Length..].ToLowerInvariant().Replace('_', '-')),
+                Markup.Escape(Config.ToolName(k)),
                 off ? "[dim]not installed[/]"
                     : v == "true" ? "[green]default version[/]"
                     : $"[green]{Markup.Escape(v)}[/]"
@@ -622,14 +631,20 @@ static class Commands
         }
         AnsiConsole.Write(tools);
 
-        if (sb.Settings.Shares.Count > 0)
+        if (st.Shares.Count > 0)
         {
             var shares = new Table()
                 .Border(TableBorder.Rounded)
-                .Title("[bold]Extra volumes[/]")
-                .AddColumn("Volume");
-            foreach (var s in sb.Settings.Shares)
-                shares.AddRow(Markup.Escape(s));
+                .Title("[bold]Shared folders [[[[share]]]][/]")
+                .AddColumn("On this machine")
+                .AddColumn("In the sandbox")
+                .AddColumn("Access");
+            foreach (var s in st.Shares)
+                shares.AddRow(
+                    Markup.Escape(s.Host),
+                    Markup.Escape(s.Path),
+                    s.ReadOnly ? "read-only" : "read-write"
+                );
             AnsiConsole.Write(shares);
         }
         return 0;

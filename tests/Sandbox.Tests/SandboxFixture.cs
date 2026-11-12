@@ -25,8 +25,9 @@ public sealed class SandboxFixture : IDisposable
     public string StateDir => Path.Combine(Dir, ".state");
     public string IdFile => Path.Combine(StateDir, "id");
     public string GeneratedFile => Path.Combine(StateDir, "compose.yml");
-    public string ConfFile => Path.Combine(Dir, "sandbox.yml");
-    public string LocalConfFile => Path.Combine(Dir, "sandbox.local.yml");
+    public string ConfFile => Path.Combine(Dir, "sandbox.toml");
+    public string OldConfFile => Path.Combine(Dir, "sandbox.yml");
+    public string OldLocalConfFile => Path.Combine(Dir, "sandbox.local.yml");
     public string AllowlistFile => Path.Combine(Dir, "allowlist.txt");
     public string WorkDir => $"/work/{ProjectName}-{Id}";
 
@@ -55,27 +56,22 @@ public sealed class SandboxFixture : IDisposable
         Build();
     }
 
-    /// A fixed sandbox.yml (not the repo's, which people edit) in the shipped format.
+    /// A fixed sandbox.toml (not the repo's, which people edit) in the shipped format.
     public const string DefaultConf = """
-        x-sandbox:
-          # project_name: myproject
-          workspace_mode: rw
-          protect_git: true
-          # ui_port: 3001
+        [project]
+        # name = "myproject"
+        workspace = "rw"
+        protect_git = true
+        # ui_port = 3001
 
-        services:
-          desktop:
-            build:
-              args:
-                INSTALL_CLAUDE: "true"
-                INSTALL_CLAUDE_CODE: "false"
-                INSTALL_DOTNET: "10.0"
-                INSTALL_NODE: ""
-            environment:
-              TITLE: AI Sandbox
-            volumes:
-              - type: tmpfs
-                target: /shares
+        [tools]
+        claude = true
+        claude_code = false
+        dotnet = "10.0"
+        node = false
+
+        [desktop]
+        title = "AI Sandbox"
 
         """;
 
@@ -97,12 +93,13 @@ public sealed class SandboxFixture : IDisposable
 
         """;
 
-    /// Back to the default state: fixed sandbox.yml + allowlist.txt, no local overrides, a fixed id, .git present.
+    /// Back to the default state: fixed sandbox.toml + allowlist.txt, no old config files, a fixed id, .git present.
     public void Reset()
     {
         File.WriteAllText(ConfFile, DefaultConf.ReplaceLineEndings("\n"));
         File.WriteAllText(AllowlistFile, DefaultAllowlist.ReplaceLineEndings("\n"));
-        File.Delete(LocalConfFile);
+        File.Delete(OldConfFile);
+        File.Delete(OldLocalConfFile);
         if (Directory.Exists(StateDir))
             Directory.Delete(StateDir, recursive: true);
         Directory.CreateDirectory(StateDir);
@@ -158,8 +155,11 @@ public sealed class SandboxFixture : IDisposable
 
     string RepoRoot => Path.GetDirectoryName(RepoSandboxDir)!;
 
+    /// The repo's .sandbox folder, or the one in $SANDBOX_TESTS_DIR (e.g. a staged copy).
     static string FindRepoSandboxDir()
     {
+        if (Environment.GetEnvironmentVariable("SANDBOX_TESTS_DIR") is { Length: > 0 } dir)
+            return Path.GetFullPath(dir);
         for (var d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
         {
             var s = Path.Combine(d.FullName, ".sandbox");

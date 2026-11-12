@@ -24,7 +24,7 @@ Run these from anywhere. They don't change your current directory.
 
 Requires Docker and the **.NET 10 SDK** (10.0.400 or newer, for `#:include`) on the host. The control logic is a
 [.NET file-based app](https://learn.microsoft.com/dotnet/core/sdk/file-based-apps). The entry point is `sandbox.cs`, which holds the commands.
-It pulls in the `sandbox.*.cs` files next to it (project, config, allowlist, proc, ui) with `#:include`. The two files above are
+It pulls in the `sandbox.*.cs` files next to it (project, compose, config, allowlist, proc, ui) with `#:include`. The two files above are
 one-line launchers that run `dotnet run --file sandbox.cs -- <args>`, so every argument reaches the app unchanged.
 The first run (and the first one after `sandbox.cs` changes) restores packages and compiles, which takes a few seconds. Later runs use the cache.
 
@@ -38,7 +38,7 @@ actually ready and opens it in your browser. Accept the self-signed certificate.
 | `shell` / `claude` | Bash / Claude Code CLI inside the sandbox, in the project folder |
 | `rebuild` / `update` | After changing tools · newest versions of everything |
 | `reset-home` | Wipe the persistent home (logins, IDE settings) · `--yes` skips the question |
-| `info` | Project identity, mount path, settings and `INSTALL_*` tools as read from `sandbox.yml` |
+| `info` | Project identity, mount path, settings, tools and shared folders as read from `sandbox.toml` |
 | `logs [service]` | Follow logs · `--tail <n>`, `--no-follow` |
 
 Add `-v` / `--verbose` to any command to see the `docker` commands it runs.
@@ -48,45 +48,62 @@ The project is mounted at `/work/<folder>-<hash>`, for example `/work/demo-proje
 The hash is created once and stored in `.sandbox/.state/id`, so moving the folder keeps the same group and home.
 Each project gets a random free localhost port, so several sandboxes can run side by side.
 
-## Configure: `sandbox.yml`
+## Configure: `sandbox.toml`
 
-All per-project settings are in one committed file:
+All per-project settings are in one committed [TOML](https://toml.io) file:
 
-```yaml
-x-sandbox:
-  workspace_mode: rw        # rw | ro
-  protect_git: true         # .git/config + .git/hooks read-only
-  # ui_port: 3001           # fixed port instead of a random one
-services:
-  desktop:
-    build:
-      args:
-        INSTALL_CLAUDE: "true"        # Claude Desktop app
-        INSTALL_CLAUDE_CODE: "false"  # Claude Code CLI
-        INSTALL_DOTNET: "10.0"        # "10.0 8.0" for both
-        INSTALL_NODE: "false"         # "24"
-        INSTALL_BUN: "true"
-        INSTALL_VSCODE: "true"
-        INSTALL_JETBRAINS: "false"    # "rider", "toolbox rider", ...
-        INSTALL_APT: ""               # extra Ubuntu packages
+```toml
+[project]
+# name = "myproject"        # container group name (default: project folder name)
+workspace = "rw"            # "rw" | "ro"
+protect_git = true          # .git/config + .git/hooks read-only
+# ui_port = 3001            # fixed port instead of a random one
+
+[tools]
+claude      = true          # Claude Desktop app
+claude_code = false         # Claude Code CLI
+dotnet      = "10.0"        # ["10.0", "8.0"] for both
+node        = false         # 24
+bun         = true
+vscode      = true
+jetbrains   = false         # "rider", ["toolbox", "rider"], ...
+apt         = []            # extra Ubuntu packages
+
+[desktop]
+title  = "AI Sandbox"
+sudo   = true               # false = no passwordless sudo
+memory = "8g"
+# cpus = 4
+# timezone = "Europe/Vienna"            # default: taken from the host
+# devices = ["/dev/dri:/dev/dri"]       # GPU (Intel/AMD, Linux)
+# security_opt = ["seccomp=unconfined"] # if GUI apps crash
+# auth = { user = "me", password = "secret" }   # basic auth for the web desktop
+
+[env]                       # extra environment variables
+# MY_VAR = "value"
+
+[[share]]                   # an extra folder; one block per folder
+host = "../reference-docs"  # relative to the project folder
+path = "/shares/docs"       # in the sandbox (default: /shares/<folder name>)
+readonly = true             # default: true
 ```
 
-Every `INSTALL_*` value works the same way: `"true"` means the default version, `"false"` or `""` means skip,
-and anything else is a version or a list. Each one runs `sandbox-install <tool> <value>`.
-Inside the sandbox you can run the same command, e.g. `sandbox-install jetbrains rider`. With no arguments it lists the tools and the hosts each one needs.
-Runtime installs are lost on rebuild, so put permanent tools in `sandbox.yml`.
+**Tools.** Every `[tools]` value works the same way: `true` means the default version, `false` or `[]` means skip,
+a text or number is a version, and a list is several. Write versions with dots as text (`"10.0"`, not `10.0`).
+Each one runs `sandbox-install <tool> <value>` while the image is built. Inside the sandbox you can run the same command,
+e.g. `sandbox-install jetbrains rider`. With no arguments it lists the tools and the hosts each one needs.
+Runtime installs are lost on rebuild, so put permanent tools in `sandbox.toml`.
 
-The file uses Docker Compose syntax, so anything Compose supports works too: environment, memory, extra volumes.
-The app merges `engine/compose.yml`, `sandbox.yml`, `sandbox.local.yml` and this machine's settings into one file,
-`.state/compose.yml`, and runs every `docker compose` command with only that file. It's regenerated before each
-command. Look at it to see what will actually run. The merge follows Compose's rules: mappings are merged,
-`environment`/`labels`/`args` by key (list or map form), `volumes` by container path, `command` and
-`healthcheck.test` are replaced, other lists are combined. `!reset` removes a value and `!override` replaces it.
-`include` and `extends` aren't supported. The UI port, the project mounts and the `.sandbox` read-only mount
-are always set by the app and can't be overridden; `TZ`, `PUID` and `PGID` are defaults you can override.
-For machine-specific tweaks (GPU, fixed port, personal shares), create `sandbox.local.yml`. It's gitignored and loaded last.
-Its `x-sandbox` values (for example `ui_port`) override the ones in `sandbox.yml`.
-Invalid values (`workspace_mode: rx`, a non-numeric `ui_port`, broken YAML) are reported with the setting or line number.
+**Checked.** Unknown sections, keys and tools are errors that list the valid names, and so are wrong types and invalid
+values (`workspace = "rx"`, a share folder that doesn't exist, broken TOML with its line and column).
+Environment variables the sandbox sets itself (`HTTP_PROXY`, `NO_PROXY`, `PUID`, `PGID`, `SANDBOX_WORKDIR`) can't be
+set in `[env]`; `TZ`, `TITLE`, `SANDBOX_SUDO`, `CUSTOM_USER`/`PASSWORD` are set through `[desktop]` instead.
+
+**How it's used.** The app renders `engine/compose.yml.sbn` (a [Scriban](https://github.com/scriban/scriban) template)
+with these settings and this machine's facts (user ids, time zone, mounts, UI port) into `.state/compose.yml`, and runs
+every `docker compose` command with only that file. It's regenerated before each command. Look at it to see what will
+actually run. The UI port, the project mounts, the `.sandbox` read-only mount and the proxy settings are written by
+the template itself, so nothing in `sandbox.toml` can change them.
 
 ## Network: `allowlist.txt`
 
@@ -107,12 +124,12 @@ JetBrains, and a local LLM on the host (`host.docker.internal`).
 | | |
 |---|---|
 | Network | Only through the allowlist proxy. No direct route, no external DNS, HTTPS tunnels only to port 443 |
-| Project | Mounted read-write (or read-only with `workspace_mode: ro`) |
+| Project | Mounted read-write (or read-only with `workspace = "ro"`) |
 | `.sandbox/` | **Read-only inside the sandbox.** The agent can read its config but not widen its allowlist or tools |
 | `.git/config`, `.git/hooks` | Read-only (`protect_git`). Prevents planting hooks or `core.hooksPath` that would run on your host. Commits still work. Commands that write git config (`git remote add`, `push -u`) must be run on the host |
 | Home | A Docker volume per project, not a host folder |
-| UI | `127.0.0.1` only. Optional basic auth via `CUSTOM_USER` / `PASSWORD` |
-| Root | Passwordless sudo by default. `SANDBOX_SUDO: "false"` removes it |
+| UI | `127.0.0.1` only. Optional basic auth via `auth` under `[desktop]` |
+| Root | Passwordless sudo by default. `sudo = false` under `[desktop]` removes it |
 | Proxy / gateway | Run as `nobody`, read-only filesystem, no capabilities |
 
 Still your responsibility: files the agent writes in the project, such as build scripts, `package.json` scripts or
@@ -130,6 +147,7 @@ Still your responsibility: files the agent writes in the project, such as build 
 - **Page blank or error on first open** → `up` waits for KDE, but if the desktop is slow it warns and opens anyway. Reload the page.
 - **"Docker is not running"** → start Docker Desktop.
 - **"dotnet not found"** or a build error from `sandbox.cs` → install the .NET 10 SDK (`dotnet --version` must show 10.x).
-- **"Another project already uses the container group"** → two projects have the same folder name. Set `x-sandbox.project_name`.
-- **GUI apps crash** → in `sandbox.local.yml`, add `security_opt: ["seccomp=unconfined"]` under `desktop`.
-- **GPU (Intel/AMD, Linux)** → in `sandbox.local.yml`, add `devices: ["/dev/dri:/dev/dri"]` under `desktop`.
+- **"Another project already uses the container group"** → two projects have the same folder name. Set `name` under `[project]`.
+- **GUI apps crash** → under `[desktop]`, set `security_opt = ["seccomp=unconfined"]`.
+- **GPU (Intel/AMD, Linux)** → under `[desktop]`, set `devices = ["/dev/dri:/dev/dri"]`.
+- **"sandbox.yml is no longer read"** → the settings moved to `sandbox.toml`; the message shows where each old key goes.

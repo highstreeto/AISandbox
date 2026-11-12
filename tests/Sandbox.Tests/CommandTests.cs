@@ -6,7 +6,7 @@ namespace Sandbox.Tests;
 public sealed class CommandTests(SandboxFixture f) : SandboxTest(f)
 {
     const string ClaudeScript =
-        "command -v claude >/dev/null || { echo \"Claude Code CLI not installed: set INSTALL_CLAUDE_CODE in sandbox.yml and rebuild.\"; exit 1; }; exec claude \"$@\"";
+        "command -v claude >/dev/null || { echo \"Claude Code CLI not installed: set claude_code under [tools] in sandbox.toml and rebuild.\"; exit 1; }; exec claude \"$@\"";
 
     Call UpWait => Compose("up", "-d", "--wait", "--wait-timeout", "300");
     Call Port => Compose("port", "gateway", "3001");
@@ -277,11 +277,11 @@ public sealed class CommandTests(SandboxFixture f) : SandboxTest(f)
         AssertOutput(r, "Usage:");
     }
 
-    /// The shipped sandbox.yml and allowlist.txt (as currently in the repo) load without errors.
+    /// The shipped sandbox.toml and allowlist.txt (as currently in the repo) load without errors.
     [Fact]
     public void Repo_config_files_are_valid()
     {
-        File.Copy(Path.Combine(F.RepoSandboxDir, "sandbox.yml"), F.ConfFile, overwrite: true);
+        File.Copy(Path.Combine(F.RepoSandboxDir, "sandbox.toml"), F.ConfFile, overwrite: true);
         File.Copy(Path.Combine(F.RepoSandboxDir, "allowlist.txt"), F.AllowlistFile, overwrite: true);
         foreach (var args in new[] { new[] { "info" }, ["allowlist", "-a"], ["status"] })
         {
@@ -309,7 +309,7 @@ public sealed class CommandTests(SandboxFixture f) : SandboxTest(f)
     [Fact]
     public void Every_compose_call_uses_only_the_generated_file()
     {
-        WriteLocalConf("services:\n  desktop:\n    mem_limit: 4g\n");
+        WriteConf(File.ReadAllText(F.ConfFile) + "memory = \"4g\"\n");
         var r = Run("up", "--no-open");
         AssertExit(r, 0);
         AssertCalls(r, DockerInfo, CollisionCheck(), ComposeInteractive("build"), UpWait, Port);
@@ -317,13 +317,13 @@ public sealed class CommandTests(SandboxFixture f) : SandboxTest(f)
             r.Calls.Where(c => c.Args[0] == "compose"),
             c => Assert.Single(c.Args, a => a == "-f")
         );
-        Assert.Contains("mem_limit: 4g", File.ReadAllText(F.GeneratedFile));
+        Assert.Contains("mem_limit: \"4g\"", File.ReadAllText(F.GeneratedFile));
     }
 
     [Fact]
     public void Project_name_sets_the_container_group()
     {
-        WriteConf(File.ReadAllText(F.ConfFile).Replace("# project_name: myproject", "project_name: Other Name"));
+        WriteConf(File.ReadAllText(F.ConfFile).Replace("# name = \"myproject\"", "name = \"Other Name\""));
         var r = Run(["up", "--no-open"], [new("ps -a --filter", "")]);
         AssertExit(r, 0);
         Assert.Equal(CollisionCheck("other-name").ToString(), r.Calls[1].ToString());

@@ -1,6 +1,7 @@
 # AI sandbox desktop: LinuxServer.io WebTop (Ubuntu + KDE Plasma).
-# Tools are selected per project with the INSTALL_* build args in sandbox.yml;
-# each one maps to tools/<name>.sh via the sandbox-install dispatcher.
+# Tools are selected per project under [tools] in sandbox.toml (claude_code → INSTALL_CLAUDE_CODE);
+# each one maps to tools/<name>.sh via the sandbox-install dispatcher. A new tool needs a
+# tools/<name>.sh plus an ARG/RUN pair below; the app reads the ARG INSTALL_* lines as the known tools.
 ARG WEBTOP_TAG=ubuntu-kde
 FROM lscr.io/linuxserver/webtop:${WEBTOP_TAG}
 

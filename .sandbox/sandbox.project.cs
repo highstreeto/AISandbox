@@ -3,8 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using YamlDotNet.Core;
-using YamlDotNet.RepresentationModel;
+using Scriban.Runtime;
 
 sealed class SandboxException(string message) : Exception(message);
 
@@ -27,11 +26,11 @@ sealed record Sandbox(
 )
 {
     // --- identity and paths ---------------------------------------------------
-    public string ConfPath => Path.Combine(Dir, "sandbox.yml");
-    public string LocalConfPath => Path.Combine(Dir, "sandbox.local.yml"); // optional, machine-specific, not committed
+    public string ConfPath => Path.Combine(Dir, Config.FileName);
     public string AllowlistPath => Path.Combine(Dir, "allowlist.txt");
     public string StateDir => Path.Combine(Dir, ".state");
-    public string EnginePath => Path.Combine(Dir, "engine", "compose.yml");
+    public string TemplatePath => Path.Combine(Dir, "engine", "compose.yml.sbn");
+    public string DockerfilePath => Path.Combine(Dir, "engine", "desktop", "Dockerfile");
     public string GenPath => Path.Combine(StateDir, "compose.yml");
 
     public static Sandbox Load(bool verbose = false)
@@ -49,9 +48,11 @@ sealed record Sandbox(
             File.WriteAllText(idFile, id + "\n");
         }
 
+        CheckOldConfig(dir);
         var settings = Config.Read(
-            Path.Combine(dir, "sandbox.yml"),
-            Path.Combine(dir, "sandbox.local.yml")
+            Path.Combine(dir, Config.FileName),
+            projectDir,
+            Path.Combine(dir, "engine", "desktop", "Dockerfile")
         );
         var baseName = Sanitize(Path.GetFileName(projectDir));
         return new Sandbox(
@@ -67,12 +68,44 @@ sealed record Sandbox(
         );
     }
 
+    /// sandbox.yml / sandbox.local.yml from before sandbox.toml: an error with the key mapping, or a warning.
+    static void CheckOldConfig(string dir)
+    {
+        var hasToml = File.Exists(Path.Combine(dir, Config.FileName));
+        var hasYml = File.Exists(Path.Combine(dir, "sandbox.yml"));
+        if (hasYml && !hasToml)
+            throw new SandboxException(
+                """
+                sandbox.yml is no longer read. Move its settings to sandbox.toml (see README.md):
+                  x-sandbox.project_name / workspace_mode / protect_git / ui_port
+                                              → [project] name / workspace / protect_git / ui_port
+                  build.args INSTALL_<TOOL>   → [tools] <tool> (lower case, e.g. INSTALL_CLAUDE_CODE → claude_code)
+                  environment TITLE / SANDBOX_SUDO / TZ / CUSTOM_USER + PASSWORD
+                                              → [desktop] title / sudo / timezone / auth
+                  other environment entries   → [env]
+                  mem_limit / cpus / devices / security_opt
+                                              → [desktop] memory / cpus / devices / security_opt
+                  volumes (extra folders)     → [[share]] host / path / readonly
+                Then delete sandbox.yml.
+                """
+            );
+        if (hasYml)
+            Ui.Warn("sandbox.yml is ignored (settings are read from sandbox.toml). Delete it.");
+        if (File.Exists(Path.Combine(dir, "sandbox.local.yml")))
+            Ui.Warn(
+                "sandbox.local.yml is no longer read. Move its settings to sandbox.toml and delete it."
+            );
+    }
+
     /// The folder this .cs file lives in; falls back to searching upwards from the current directory.
     static string LocateSandboxDir()
     {
         static bool IsSandbox(string? d) =>
             d != null
-            && File.Exists(Path.Combine(d, "sandbox.yml"))
+            && (
+                File.Exists(Path.Combine(d, Config.FileName))
+                || File.Exists(Path.Combine(d, "sandbox.yml"))
+            )
             && Directory.Exists(Path.Combine(d, "engine"));
 
         if (AppContext.GetData("EntryPointFileDirectoryPath") is string ep && IsSandbox(ep))
@@ -86,7 +119,7 @@ sealed record Sandbox(
                 return Physical(sub);
         }
         throw new SandboxException(
-            "Could not find the .sandbox folder (with sandbox.yml and engine/)."
+            "Could not find the .sandbox folder (with sandbox.toml and engine/)."
         );
     }
 
@@ -170,7 +203,7 @@ sealed record Sandbox(
         );
         if (r.Lines().Any(l => l != Id))
             throw new SandboxException(
-                $"Another project already uses the container group '{Name}'. Set x-sandbox.project_name in sandbox.yml."
+                $"Another project already uses the container group '{Name}'. Set name under [project] in sandbox.toml."
             );
     }
 
@@ -241,103 +274,86 @@ sealed record Sandbox(
     }
 
     // --- generated compose file ----------------------------------------------
-    /// Writes .state/compose.yml, the only file docker compose runs with. Layers, later ones win:
-    ///   engine/compose.yml   the services, networks and hardening
-    ///   host defaults        PUID, PGID, TZ (sandbox.yml may override them)
-    ///   sandbox.yml          the project's settings
-    ///   sandbox.local.yml    machine-specific settings (optional)
-    ///   host settings        UI port, sandbox.id label, workdir and project mounts (can't be overridden)
+    /// Writes .state/compose.yml, the only file docker compose runs with: engine/compose.yml.sbn rendered
+    /// with the settings from sandbox.toml and this machine's facts (user ids, time zone, mounts, UI port).
+    /// The UI port, the project mounts and the proxy settings are written by the template itself, so
+    /// sandbox.toml has no way to change them.
     public void Generate()
     {
-        var layers = new List<ComposeLayer>
-        {
-            ComposeMerger.Layer("engine/compose.yml", Config.Load(EnginePath)),
-            ComposeMerger.Layer(
-                "host defaults",
-                Desktop(new() { { "environment", HostDefaults() } })
-            ),
-            ComposeMerger.Layer("sandbox.yml", Config.Load(ConfPath)),
-        };
-        if (File.Exists(LocalConfPath))
-            layers.Add(ComposeMerger.Layer("sandbox.local.yml", Config.Load(LocalConfPath)));
-        layers.Add(ComposeMerger.Layer("host settings", HostSettings()));
-
-        var text = ComposeMerger.Write(ComposeMerger.Merge(layers), Header);
+        var text = ComposeTemplate.Render(TemplatePath, Model());
         File.WriteAllText(GenPath, text, new UTF8Encoding(false));
         File.Delete(Path.Combine(StateDir, "compose.generated.yml")); // left over from the multi-file setup
     }
 
-    public const string Header = """
-        Generated by .sandbox/sandbox — do not edit, change sandbox.yml (or sandbox.local.yml) instead.
-        Merged from engine/compose.yml, sandbox.yml, sandbox.local.yml and this machine's settings.
-        Relative paths are relative to the .sandbox folder.
-        """;
-
-    static YamlMappingNode Desktop(YamlMappingNode desktop) =>
-        new()
-        {
-            {
-                "services",
-                new YamlMappingNode { { "desktop", desktop } }
-            },
-        };
-
-    YamlMappingNode HostSettings()
+    /// The template's variables: host, tools, desktop, env, mounts.
+    public ScriptObject Model()
     {
-        var root = Desktop(
-            new()
-            {
-                {
-                    "labels",
-                    new YamlMappingNode { { "sandbox.id", Y.Str(Id) } }
-                },
-                {
-                    "environment",
-                    new YamlMappingNode { { "SANDBOX_WORKDIR", Y.Str(WorkDir) } }
-                },
-                { "volumes", DesktopVolumes() },
-            }
-        );
-        // !override: the gateway publishes exactly this port, whatever the other layers say
-        var ports = new YamlSequenceNode(Y.Str($"127.0.0.1:{Settings.UiPort}:3001"))
-        {
-            Tag = new TagName("!override"),
-        };
-        ((YamlMappingNode)root["services"]).Add(
-            "gateway",
-            new YamlMappingNode { { "ports", ports } }
-        );
-        return root;
-    }
-
-    static YamlMappingNode HostDefaults()
-    {
+        var s = Settings;
         var (uid, gid) = Native.UserIds();
-        var env = new YamlMappingNode
-        {
-            { "PUID", Y.Str(uid.ToString()) },
-            { "PGID", Y.Str(gid.ToString()) },
-        };
-        if (TimeZone() is { } tz)
-            env.Add("TZ", Y.Str(tz));
-        return env;
+
+        var auth = s.Auth is { } a ? Obj(("user", a.User), ("password", a.Password)) : null;
+        return Obj(
+            (
+                "host",
+                Obj(
+                    ("id", Id),
+                    ("workdir", WorkDir),
+                    ("uid", uid.ToString()),
+                    ("gid", gid.ToString()),
+                    ("ui_port", s.UiPort?.ToString() ?? "")
+                )
+            ),
+            ("tools", Arr(s.Install.Select(t => Obj(("arg", t.Arg), ("value", t.Value))))),
+            (
+                "desktop",
+                Obj(
+                    ("title", s.Title),
+                    ("sudo", s.Sudo ? "true" : "false"),
+                    ("auth", auth),
+                    ("timezone", s.TimeZone ?? TimeZone()),
+                    ("memory", s.Memory),
+                    ("cpus", s.Cpus),
+                    ("devices", Arr(s.Devices)),
+                    ("security_opt", Arr(s.SecurityOpt))
+                )
+            ),
+            ("env", Arr(s.Env.Select(e => Obj(("key", e.Key), ("value", e.Value))))),
+            ("mounts", Arr(Mounts().Select(m => Obj(
+                ("source", m.Source),
+                ("target", m.Target),
+                ("read_only", m.ReadOnly)
+            )))));
     }
 
-    YamlSequenceNode DesktopVolumes()
+    static ScriptObject Obj(params (string Key, object? Value)[] members)
     {
-        var volumes = new YamlSequenceNode(
-            Y.Bind(ProjectDir, WorkDir, Settings.ReadOnly),
+        var o = new ScriptObject();
+        foreach (var (k, v) in members)
+            o[k] = v;
+        return o;
+    }
+
+    static ScriptArray Arr(IEnumerable<object> items) => new(items);
+
+    /// Bind mounts of the desktop: the project, the read-only .sandbox, the protected .git paths, the shares.
+    List<(string Source, string Target, bool ReadOnly)> Mounts()
+    {
+        var mounts = new List<(string, string, bool)>
+        {
+            (ProjectDir, WorkDir, Settings.ReadOnly),
             // The sandbox config is visible but read-only: the agent can't widen its allowlist.
-            Y.Bind(Dir, $"{WorkDir}/{Path.GetFileName(Dir)}", true)
-        );
+            (Dir, $"{WorkDir}/{Path.GetFileName(Dir)}", true),
+        };
         if (Settings.ProtectGit && !Settings.ReadOnly)
             foreach (var p in new[] { "config", "hooks" })
             {
                 var src = Path.Combine(ProjectDir, ".git", p);
                 if (File.Exists(src) || Directory.Exists(src))
-                    volumes.Add(Y.Bind(src, $"{WorkDir}/.git/{p}", true));
+                    mounts.Add((src, $"{WorkDir}/.git/{p}", true));
             }
-        return volumes;
+        foreach (var sh in Settings.Shares)
+            mounts.Add((sh.Host, sh.Path, sh.ReadOnly));
+        return mounts;
     }
 
     static string? TimeZone()
@@ -350,29 +366,4 @@ sealed record Sandbox(
             return local.Id is "Local" or "" ? null : local.Id;
         return TimeZoneInfo.TryConvertWindowsIdToIanaId(local.Id, out var iana) ? iana : null;
     }
-}
-
-/// YAML node helpers for the generated file: strings are always quoted, so paths and ports stay strings.
-static class Y
-{
-    public static YamlScalarNode Key(string k) => new(k);
-
-    public static YamlScalarNode Str(string s) => new(s) { Style = ScalarStyle.DoubleQuoted };
-
-    public static YamlScalarNode Bool(bool b) =>
-        new(b ? "true" : "false") { Style = ScalarStyle.Plain };
-
-    public static YamlMappingNode Bind(string source, string target, bool readOnly) =>
-        new(
-            new KeyValuePair<YamlNode, YamlNode>[]
-            {
-                new(Key("type"), new YamlScalarNode("bind")),
-                new(Key("source"), Str(source)),
-                new(Key("target"), Str(target)),
-                new(Key("read_only"), Bool(readOnly)),
-            }
-        )
-        {
-            Style = YamlDotNet.Core.Events.MappingStyle.Flow,
-        };
 }
