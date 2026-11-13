@@ -85,7 +85,7 @@ fn the_new_sandbox_works_with_info() {
     assert_output(&r, "Project folder");
     assert_output(&r, dir.as_str());
     let r = f.run_with(&["allowlist"], RunOpts::default().sandbox_dir(sandbox_dir));
-    assert!(r.lines().contains(&"api.anthropic.com".to_string()), "{r}");
+    assert!(r.lines().iter().all(|line| line.is_empty()), "{r}");
 }
 
 #[test]

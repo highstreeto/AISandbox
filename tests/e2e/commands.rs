@@ -414,10 +414,13 @@ fn repo_config_files_are_valid() {
         assert_exit(&r, 0);
         assert!(!r.output().contains("ERROR"), "{r}");
     }
+
+    println!("{}", f.run(&["allowlist"]).lines().join("\n"));
     assert!(
         f.run(&["allowlist"])
             .lines()
-            .contains(&"api.anthropic.com".to_string())
+            .iter()
+            .all(|line| line.is_empty()),
     );
 }
 
