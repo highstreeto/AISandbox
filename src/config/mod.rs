@@ -1,4 +1,4 @@
-//! Reads `sandbox.toml`. Every key is known and typed: unknown keys, wrong types and invalid values are errors.
+//! Reads `sandbox.toml` (and the optional `sandbox.local.toml`). Every key is known and typed: unknown keys, wrong types and invalid values are errors.
 
 pub mod reader;
 
@@ -11,6 +11,8 @@ use std::sync::LazyLock;
 use toml::{Table, Value};
 
 pub const FILE_NAME: &str = "sandbox.toml";
+/// Personal overrides next to `sandbox.toml`; not committed. Only `[host]` can be set in it.
+pub const LOCAL_FILE_NAME: &str = "sandbox.local.toml";
 
 /// Environment variables the sandbox sets itself, with where to change them instead (`None` = not at all).
 const RESERVED_ENV: &[(&str, Option<&str>)] = &[
@@ -45,6 +47,40 @@ pub struct Settings {
     pub auth: Option<BasicAuth>,
     pub env: Vec<EnvVariable>,
     pub shares: Vec<Share>,
+    pub browser: BrowserSetting,
+    /// Which file `browser` is from.
+    pub browser_source: BrowserSource,
+}
+
+/// `[host] browser`: how `up` and `open` show the desktop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BrowserSetting {
+    /// The system's default browser.
+    Default,
+    /// Never open a browser.
+    Off,
+    /// A program and its arguments; the URL is added as the last one, or where `{url}` is.
+    Command(Vec<String>),
+}
+
+/// Where a setting that can come from either file was read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserSource {
+    /// Not set anywhere.
+    Default,
+    Main,
+    Local,
+}
+
+impl BrowserSource {
+    /// The file name for messages; `None` when the setting was not set.
+    pub fn file_name(self) -> Option<&'static str> {
+        match self {
+            Self::Default => None,
+            Self::Main => Some(FILE_NAME),
+            Self::Local => Some(LOCAL_FILE_NAME),
+        }
+    }
 }
 
 /// One `[tools]` entry as a Dockerfile build arg, e.g. `INSTALL_DOTNET = "10.0 8.0"`.
@@ -88,7 +124,12 @@ static INSTALL_ARG: LazyLock<Regex> =
 
 /// An error about `sandbox.toml`: the message is prefixed with the file name.
 pub fn error(message: impl AsRef<str>) -> anyhow::Error {
-    anyhow!("{FILE_NAME}: {}", message.as_ref())
+    error_in(FILE_NAME, message)
+}
+
+/// An error about the given settings file: the message is prefixed with its name.
+pub fn error_in(file: &str, message: impl AsRef<str>) -> anyhow::Error {
+    anyhow!("{file}: {}", message.as_ref())
 }
 
 /// A TOML float as written in messages and environment values: at least one decimal, at most four (`0.0###`).
@@ -146,17 +187,7 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
     if !path.is_file() {
         return Err(anyhow!("{FILE_NAME} not found."));
     }
-    let text = paths::read_text(path)?;
-    let root: Table = match text.parse::<Table>() {
-        Ok(t) => t,
-        Err(e) => {
-            let (line, column) = e.span().map_or((1, 1), |s| line_and_column(&text, s.start));
-            return Err(anyhow!(
-                "{FILE_NAME} is not valid TOML (line {line}, column {column}): {}",
-                e.message()
-            ));
-        }
-    };
+    let root = parse_file(FILE_NAME, path)?;
 
     let mut r = TableReader::new(&root, "");
     let mut project = r.table("project")?;
@@ -164,6 +195,7 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
     let mut desktop = r.table("desktop")?;
     let mut env = r.table("env")?;
     let mut shares = r.table_array("share")?;
+    let mut host = r.table("host")?;
     r.done("table")?;
 
     // --- [project] ---
@@ -303,6 +335,15 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
         s.done("key")?;
     }
 
+    // --- [host] ---
+    let mut browser = (BrowserSetting::Default, BrowserSource::Default);
+    if let Some(b) = read_host(&mut host, FILE_NAME)? {
+        browser = (b, BrowserSource::Main);
+    }
+    if let Some(b) = read_local(&path.with_file_name(LOCAL_FILE_NAME))? {
+        browser = (b, BrowserSource::Local);
+    }
+
     Ok(Settings {
         project_name: name
             .map(str::trim)
@@ -325,7 +366,114 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
         auth,
         env: env_vars,
         shares: share_list,
+        browser: browser.0,
+        browser_source: browser.1,
     })
+}
+
+/// Reads and parses a settings file; a syntax error names the file, line and column.
+fn parse_file(name: &str, path: &Utf8Path) -> Result<Table> {
+    let text = paths::read_text(path)?;
+    parse_text(name, &text)
+}
+
+fn parse_text(name: &str, text: &str) -> Result<Table> {
+    text.parse::<Table>().map_err(|e| {
+        let (line, column) = e.span().map_or((1, 1), |s| line_and_column(text, s.start));
+        anyhow!(
+            "{name} is not valid TOML (line {line}, column {column}): {}",
+            e.message()
+        )
+    })
+}
+
+/// `sandbox.local.toml`: its `[host] browser`, if the file exists and sets it. Nothing but `[host]` is allowed in it.
+fn read_local(path: &Utf8Path) -> Result<Option<BrowserSetting>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    local_host(&parse_file(LOCAL_FILE_NAME, path)?)
+}
+
+fn local_host(root: &Table) -> Result<Option<BrowserSetting>> {
+    if let Some(other) = root.keys().find(|k| *k != "host") {
+        return Err(error_in(
+            LOCAL_FILE_NAME,
+            format!("only [host] can be set here (found '{other}')."),
+        ));
+    }
+    let mut r = TableReader::new_in(LOCAL_FILE_NAME, root, "");
+    let mut host = r.table("host")?;
+    r.done("table")?;
+    read_host(&mut host, LOCAL_FILE_NAME)
+}
+
+/// The `[host]` section of either file: `Some` if `browser` is set.
+fn read_host(host: &mut TableReader, file: &str) -> Result<Option<BrowserSetting>> {
+    let setting = match host.raw("browser") {
+        None => None,
+        Some(v) => Some(browser_value(file, v)?),
+    };
+    host.done("key")?;
+    Ok(setting)
+}
+
+/// `"default"` / true, false, a command (`"firefox"`) or a command with arguments (`["chromium", "--incognito"]`).
+fn browser_value(file: &str, v: &Value) -> Result<BrowserSetting> {
+    const URL: &str = "{url}";
+    let fail = |message: String| error_in(file, message);
+    match v {
+        Value::Boolean(true) => Ok(BrowserSetting::Default),
+        Value::Boolean(false) => Ok(BrowserSetting::Off),
+        Value::String(s) => match s.trim() {
+            "" => Err(fail(
+                "host.browser must not be empty (use \"default\", or false for no browser).".into(),
+            )),
+            "default" => Ok(BrowserSetting::Default),
+            program => Ok(BrowserSetting::Command(vec![program.to_string()])),
+        },
+        Value::Array(items) => {
+            let mut parts = Vec::new();
+            for (i, x) in items.iter().enumerate() {
+                match x {
+                    Value::String(s) => parts.push(s.clone()),
+                    other => {
+                        return Err(fail(format!(
+                            "host.browser must be a list of texts, e.g. [\"chromium\", \"--incognito\"] (item {} is {}).",
+                            i + 1,
+                            reader::show(other)
+                        )));
+                    }
+                }
+            }
+            if parts.is_empty() {
+                return Err(fail(
+                    "host.browser must not be an empty list; start it with the program, e.g. [\"chromium\", \"--incognito\"]."
+                        .into(),
+                ));
+            }
+            if parts[0].trim().is_empty() {
+                return Err(fail(
+                    "host.browser: the first item must be the program, not an empty text.".into(),
+                ));
+            }
+            if parts[0].contains(URL) {
+                return Err(fail(format!(
+                    "host.browser: the first item is the program and can't contain {URL}."
+                )));
+            }
+            if parts.iter().map(|p| p.matches(URL).count()).sum::<usize>() > 1 {
+                return Err(fail(format!(
+                    "host.browser can contain {URL} only once (it is replaced by the address)."
+                )));
+            }
+            Ok(BrowserSetting::Command(parts))
+        }
+        other => Err(fail(format!(
+            "host.browser must be true, false, a text or a list of texts (got {}).",
+            reader::show(other)
+        ))),
+    }
 }
 
 /// The last component of a path (`Path.GetFileName`).
@@ -479,6 +627,155 @@ mod tests {
         assert_eq!(s.shares[0].path, "/shares/docs");
         assert_eq!(s.shares[0].host, dir.join("proj").join("docs").as_str());
         assert!(s.shares[0].read_only);
+    }
+
+    fn read_with_local(main: &str, local: &str) -> Result<Settings> {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = Utf8Path::from_path(tmp.path()).unwrap();
+        std::fs::write(dir.join(FILE_NAME), main).unwrap();
+        std::fs::write(dir.join(LOCAL_FILE_NAME), local).unwrap();
+        read(&dir.join(FILE_NAME), dir, DOCKERFILE)
+    }
+
+    fn command(items: &[&str]) -> BrowserSetting {
+        BrowserSetting::Command(items.iter().map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn the_browser_is_the_default_unless_set() {
+        let s = read_str("").unwrap();
+        assert_eq!(s.browser, BrowserSetting::Default);
+        assert_eq!(s.browser_source, BrowserSource::Default);
+        assert_eq!(s.browser_source.file_name(), None);
+    }
+
+    #[test]
+    fn every_form_of_the_browser() {
+        let cases: [(&str, BrowserSetting); 6] = [
+            ("\"default\"", BrowserSetting::Default),
+            ("true", BrowserSetting::Default),
+            ("false", BrowserSetting::Off),
+            ("\" firefox \"", command(&["firefox"])),
+            (
+                "[\"chromium\", \"--incognito\"]",
+                command(&["chromium", "--incognito"]),
+            ),
+            (
+                "[\"chrome\", \"--app={url}\"]",
+                command(&["chrome", "--app={url}"]),
+            ),
+        ];
+        for (value, expected) in cases {
+            let s = read_str(&format!("[host]\nbrowser = {value}\n")).unwrap();
+            assert_eq!(s.browser, expected, "{value}");
+            assert_eq!(s.browser_source, BrowserSource::Main, "{value}");
+        }
+    }
+
+    #[test]
+    fn invalid_browsers_are_errors_naming_the_file() {
+        let cases = [
+            ("\"\"", "host.browser must not be empty"),
+            ("\"  \"", "host.browser must not be empty"),
+            ("[]", "host.browser must not be an empty list"),
+            ("[\"\"]", "host.browser: the first item must be the program"),
+            (
+                "[\"a\", 5]",
+                "host.browser must be a list of texts, e.g. [\"chromium\", \"--incognito\"] (item 2 is 5)",
+            ),
+            (
+                "[\"a{url}\"]",
+                "the first item is the program and can't contain {url}",
+            ),
+            (
+                "[\"a\", \"{url}\", \"x={url}\"]",
+                "host.browser can contain {url} only once",
+            ),
+            (
+                "[\"a\", \"{url}{url}\"]",
+                "host.browser can contain {url} only once",
+            ),
+            (
+                "5",
+                "host.browser must be true, false, a text or a list of texts (got 5)",
+            ),
+        ];
+        for (value, message) in cases {
+            let e = read_str(&format!("[host]\nbrowser = {value}\n"))
+                .unwrap_err()
+                .to_string();
+            assert!(e.starts_with("sandbox.toml: "), "{e}");
+            assert!(e.contains(message), "{value}: {e}");
+        }
+    }
+
+    #[test]
+    fn unknown_host_keys_are_errors() {
+        assert_eq!(
+            read_str("[host]\nbrowzer = 1\n").unwrap_err().to_string(),
+            "sandbox.toml: unknown key 'host.browzer' (known: browser)."
+        );
+    }
+
+    #[test]
+    fn the_local_file_overrides_the_main_file() {
+        let s = read_with_local(
+            "[host]\nbrowser = \"firefox\"\n",
+            "[host]\nbrowser = false\n",
+        )
+        .unwrap();
+        assert_eq!(s.browser, BrowserSetting::Off);
+        assert_eq!(s.browser_source, BrowserSource::Local);
+        assert_eq!(s.browser_source.file_name(), Some("sandbox.local.toml"));
+
+        // a local file that sets nothing leaves the main file's value
+        let s = read_with_local("[host]\nbrowser = \"firefox\"\n", "[host]\n").unwrap();
+        assert_eq!(s.browser, command(&["firefox"]));
+        assert_eq!(s.browser_source, BrowserSource::Main);
+        let s = read_with_local("", "").unwrap();
+        assert_eq!(s.browser_source, BrowserSource::Default);
+    }
+
+    #[test]
+    fn the_local_file_may_only_have_host() {
+        let e = read_with_local("", "[tools]\nnode = true\n")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            e,
+            "sandbox.local.toml: only [host] can be set here (found 'tools')."
+        );
+        let e = read_with_local("", "[host]\nbrowser = false\n[env]\n")
+            .unwrap_err()
+            .to_string();
+        assert!(e.ends_with("(found 'env')."), "{e}");
+    }
+
+    #[test]
+    fn errors_in_the_local_file_name_it() {
+        let e = read_with_local("", "[host]\nbrowser = 5\n")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.starts_with("sandbox.local.toml: host.browser must be"),
+            "{e}"
+        );
+        let e = read_with_local("", "[host]\nother = 5\n")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            e,
+            "sandbox.local.toml: unknown key 'host.other' (known: browser)."
+        );
+        let e = read_with_local("", "[host]\nbrowser = \n")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.starts_with("sandbox.local.toml is not valid TOML (line 2, column 11): "),
+            "{e}"
+        );
+        let e = read_with_local("", "host = 1\n").unwrap_err().to_string();
+        assert_eq!(e, "sandbox.local.toml: host must be a table (got 1).");
     }
 
     #[test]

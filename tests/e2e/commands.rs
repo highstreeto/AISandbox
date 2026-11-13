@@ -123,6 +123,26 @@ fn open_asks_for_the_port_and_opens_the_browser() {
     assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), port(&f), call("xdg-open", &[URL])]);
 }
 
+#[cfg(unix)]
+#[test]
+fn open_starts_the_configured_browser_with_the_url_last() {
+    let f = Fixture::new();
+    f.write_conf(&(f.read_conf() + "\n[host]\nbrowser = [\"xdg-open\", \"--private\"]\n"));
+    let r = f.run_with(&["open"], RunOpts::default().wait_for("xdg-open"));
+    assert_exit(&r, 0);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), port(&f), call("xdg-open", &["--private", URL])]);
+}
+
+#[test]
+fn open_with_the_browser_off_only_prints_the_url() {
+    let f = Fixture::new();
+    f.write_conf(&(f.read_conf() + "\n[host]\nbrowser = false\n"));
+    let r = f.run(&["open"]);
+    assert_exit(&r, 0);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), port(&f)]);
+    assert_output(&r, URL);
+}
+
 #[test]
 fn shell_execs_bash_in_the_project_folder() {
     let f = Fixture::new();
@@ -390,6 +410,23 @@ fn info_does_not_call_docker() {
             .is_match(&r.stdout),
         "{r}"
     );
+}
+
+#[test]
+fn info_shows_the_browser_and_where_it_is_set() {
+    let f = Fixture::new();
+    let r = f.run(&["info"]);
+    assert_exit(&r, 0);
+    assert!(Regex::new(r"Browser\s+system default\s").unwrap().is_match(&r.stdout), "{r}");
+
+    f.write_conf(&(f.read_conf() + "\n[host]\nbrowser = [\"firefox\", \"-private\"]\n"));
+    let r = f.run(&["info"]);
+    assert_output(&r, "firefox -private (sandbox.toml)");
+
+    fs::write(f.dir.join("sandbox.local.toml"), "[host]\nbrowser = false\n").unwrap();
+    let r = f.run(&["info"]);
+    assert_exit(&r, 0);
+    assert_output(&r, "off (nothing is opened) (sandbox.local.toml)");
 }
 
 #[rstest]

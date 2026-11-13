@@ -1,4 +1,4 @@
-//! `sandbox init [folder]`: creates .sandbox/ with the two files a project owns, without Docker.
+//! `sandbox init [folder]`: creates .sandbox/ with the files a project owns, without Docker.
 
 use crate::support::*;
 use camino::Utf8PathBuf;
@@ -64,7 +64,10 @@ fn an_empty_folder_gets_the_files_and_the_engine() {
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     files.sort();
-    assert_eq!(files, ["allowlist.txt", "sandbox.toml"]);
+    assert_eq!(files, [".gitignore", "allowlist.txt", "sandbox.toml"]);
+    assert_eq!(read(&sb.join(".gitignore")), "sandbox.local.toml\n");
+    assert_eq!(template(&f, "gitignore"), read(&sb.join(".gitignore")));
+    assert_output(&r, "Created .sandbox/.gitignore");
     assert_output(&r, "Created .sandbox/sandbox.toml");
     assert_output(&r, "Created .sandbox/allowlist.txt");
     assert_output(&r, "Next: edit .sandbox/sandbox.toml, then \"sandbox up\".");
@@ -143,6 +146,7 @@ fn running_it_again_keeps_the_files() {
     assert_exit(&r, 0);
     assert_output(&r, "sandbox.toml exists — kept");
     assert_output(&r, "allowlist.txt exists — kept");
+    assert_output(&r, ".gitignore exists — kept");
     assert!(!r.output().contains("Created"), "{r}");
     assert_eq!(read(&toml), "[project]\nname = \"mine\"\n");
     assert_eq!(allow_before, read(&allow));
@@ -167,6 +171,34 @@ fn only_the_missing_file_is_created() {
         template(&f, "allowlist.txt"),
         read(&dir.join(".sandbox").join("allowlist.txt"))
     );
+}
+
+#[test]
+fn an_existing_gitignore_is_kept() {
+    let f = Fixture::new();
+    let dir = new_folder(&f, "fresh");
+    let ignore = dir.join(".sandbox").join(".gitignore");
+    fs::create_dir_all(ignore.parent().unwrap()).unwrap();
+    fs::write(&ignore, "mine\n").unwrap();
+    let r = f.run(&["init", dir.as_str()]);
+    assert_exit(&r, 0);
+    assert_output(&r, ".gitignore exists — kept");
+    assert_eq!(read(&ignore), "mine\n");
+}
+
+#[test]
+fn a_local_file_that_git_would_see_is_a_warning() {
+    let f = Fixture::new();
+    let local = f.dir.join("sandbox.local.toml");
+    fs::write(&local, "[host]\nbrowser = false\n").unwrap();
+    let r = f.run(&["info"]);
+    assert_exit(&r, 0);
+    assert_output(
+        &r,
+        ".sandbox/.gitignore is missing, so sandbox.local.toml could be committed",
+    );
+    fs::write(f.dir.join(".gitignore"), "sandbox.local.toml\n").unwrap();
+    assert!(!f.run(&["info"]).output().contains("WARNING"));
 }
 
 #[test]

@@ -2,6 +2,7 @@
 //! logs.
 
 use crate::compose;
+use crate::config::BrowserSetting;
 use crate::docker::Docker;
 use crate::process::{self, ProcResult};
 use crate::project::Project;
@@ -30,7 +31,7 @@ pub fn up(d: &Docker, open_browser: bool) -> Result<i32> {
     ];
     ui.print_panel("Sandbox running", &lines, Some(Color::Green), false);
     if open_browser {
-        process::open_browser(&url);
+        process::open_browser(ui, &url, &p.settings.browser);
     }
     Ok(0)
 }
@@ -90,7 +91,11 @@ pub fn open(d: &Docker) -> Result<i32> {
             d.ui.self_name()
         );
     };
-    process::open_browser(&url);
+    if d.project.settings.browser == BrowserSetting::Off {
+        println!("{} {url}", d.ui.bold("URL:"));
+    } else {
+        process::open_browser(d.ui, &url, &d.project.settings.browser);
+    }
     Ok(0)
 }
 

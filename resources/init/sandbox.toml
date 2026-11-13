@@ -37,6 +37,15 @@ memory = "8g"
 # security_opt = ["seccomp=unconfined"] # if GUI apps crash
 # auth = { user = "me", password = "secret" }   # basic auth for the web desktop
 
+# How "sandbox up" and "sandbox open" show the desktop. Can also be set in
+# sandbox.local.toml (not committed) to use your own browser.
+[host]
+# browser = "default"                 # the system's default browser
+# browser = false                     # never open one
+# browser = "firefox"                 # a program on PATH, or a full path
+# browser = ["chromium", "--incognito"]   # program + arguments; the address is added last
+# browser = ["chrome", "--app={url}"]     # {url} (once) puts the address elsewhere
+
 # Extra environment variables in the desktop.
 [env]
 # MY_VAR = "value"

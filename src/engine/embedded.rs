@@ -50,6 +50,7 @@ mod tests {
         let all = names("");
         assert!(all.contains(&"desktop/tools/node.sh".to_string()));
         assert!(all.contains(&"init/sandbox.toml".to_string()));
+        assert!(all.contains(&"init/gitignore".to_string()));
         assert!(all.iter().all(|n| !n.contains('\\')));
         let mut sorted = all.clone();
         sorted.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));

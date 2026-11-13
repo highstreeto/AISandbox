@@ -53,6 +53,7 @@ impl Project {
             &project_dir,
             &embedded::read_text("desktop/Dockerfile")?,
         )?;
+        check_local_ignore(ui, &dir);
         let base_name = sanitize(project_dir.file_name().unwrap_or(""));
         let name = match settings.project_name.as_deref() {
             Some(n) if !n.trim().is_empty() => sanitize(n),
@@ -168,9 +169,37 @@ pub fn check_old_layout(ui: &Ui, dir: &Utf8Path) {
     if dir.join("engine").is_dir() {
         ui.warn(
             ".sandbox/engine/ is no longer used \u{2014} the engine is built into the app (see .sandbox/.state/desktop/ and proxy/). \
-             Delete it, together with .sandbox/README.md, .gitattributes and .gitignore.",
+             Delete it, together with .sandbox/README.md and .gitattributes.",
         );
     }
+}
+
+/// `sandbox.local.toml` holds personal settings: a warning if `.sandbox/.gitignore` doesn't keep it out of git.
+fn check_local_ignore(ui: &Ui, dir: &Utf8Path) {
+    if !dir.join(config::LOCAL_FILE_NAME).is_file() {
+        return;
+    }
+    let ignore = dir.join(".gitignore");
+    let Ok(text) = paths::read_text(&ignore) else {
+        ui.warn(&format!(
+            ".sandbox/.gitignore is missing, so {} could be committed. Run \"sandbox init\" to add it.",
+            config::LOCAL_FILE_NAME
+        ));
+        return;
+    };
+    if !ignores_local_file(&text) {
+        ui.warn(&format!(
+            ".sandbox/.gitignore does not list {name}, so it could be committed. Add a line with {name} to it.",
+            name = config::LOCAL_FILE_NAME
+        ));
+    }
+}
+
+/// Whether a `.gitignore` has a line for `sandbox.local.toml`.
+fn ignores_local_file(text: &str) -> bool {
+    text.lines()
+        .map(str::trim)
+        .any(|l| l.trim_start_matches('/') == config::LOCAL_FILE_NAME)
 }
 
 /// sandbox.yml / sandbox.local.yml from before sandbox.toml: an error with the key mapping, or a warning.
@@ -206,6 +235,14 @@ fn check_old_config(ui: &Ui, dir: &Utf8Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_local_file_must_be_listed_in_the_gitignore() {
+        assert!(ignores_local_file("sandbox.local.toml\n"));
+        assert!(ignores_local_file("*.log\r\n/sandbox.local.toml\r\n"));
+        assert!(!ignores_local_file(""));
+        assert!(!ignores_local_file("# sandbox.local.toml\n"));
+    }
 
     #[test]
     fn sanitize_makes_a_compose_project_name() {

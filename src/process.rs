@@ -1,5 +1,6 @@
 //! Child processes (captured, or attached to this terminal), `docker` lookup, the browser, the host user's ids.
 
+use crate::config::BrowserSetting;
 use crate::ui::Ui;
 use anyhow::{Result, bail};
 use std::process::{Command, Stdio};
@@ -107,11 +108,67 @@ fn trace<S: AsRef<str>>(ui: &Ui, verbose: bool, file: &str, args: &[S]) {
     println!("{}", ui.dim(format!("$ {}", parts.join(" "))));
 }
 
-/// Opens the URL in the default browser, or prints it if that isn't possible.
-pub fn open_browser(url: &str) {
-    if !try_open_browser(url) {
-        println!("Open {url} in your browser.");
+/// Opens the URL as `[host] browser` says: the default browser (or the URL is printed if there is none), the
+/// configured command, or nothing. A configured command that can't be started is a warning, not a fallback.
+pub fn open_browser(ui: &Ui, url: &str, browser: &BrowserSetting) {
+    match browser {
+        BrowserSetting::Off => {}
+        BrowserSetting::Default => {
+            if !try_open_browser(url) {
+                println!("Open {url} in your browser.");
+            }
+        }
+        BrowserSetting::Command(cmd) => {
+            let (program, args) = browser_command(cmd, url);
+            let (program, args) = if cfg!(windows) {
+                start_command(&program, args)
+            } else {
+                (program, args)
+            };
+            if let Err(e) = spawn_detached(&program, &args) {
+                ui.warn(&format!(
+                    "Could not start the browser \"{program}\": {e}. Open {url} in your browser."
+                ));
+            }
+        }
     }
+}
+
+/// The program and arguments for a configured browser: the URL is the last argument, or replaces `{url}` where an
+/// argument contains it.
+pub fn browser_command(cmd: &[String], url: &str) -> (String, Vec<String>) {
+    let (program, rest) = cmd.split_first().map_or(("", &[][..]), |(p, r)| (p, r));
+    let args = if rest.iter().any(|a| a.contains("{url}")) {
+        rest.iter().map(|a| a.replace("{url}", url)).collect()
+    } else {
+        rest.iter().cloned().chain([url.to_string()]).collect()
+    };
+    (program.to_string(), args)
+}
+
+/// Windows: a bare program name goes through `cmd /C start`, which also finds apps registered with Windows
+/// (`firefox`, `msedge`, `chrome`) that are not on `PATH`; a path is started directly.
+fn start_command(program: &str, args: Vec<String>) -> (String, Vec<String>) {
+    if program.contains(['/', '\\']) {
+        return (program.to_string(), args);
+    }
+    let mut all: Vec<String> = ["/C", "start", "", program]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    all.extend(args);
+    ("cmd".to_string(), all)
+}
+
+/// Started with its output discarded and not waited for.
+fn spawn_detached(program: &str, args: &[String]) -> std::io::Result<()> {
+    Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
 }
 
 #[cfg(windows)]
@@ -204,6 +261,50 @@ mod tests {
         };
         let r = capture(&ui, false, "sh", &["-c", "kill -TERM $$"]);
         assert_eq!(r.exit_code, 128 + 15);
+    }
+
+    fn texts(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_url_is_the_last_argument() {
+        let (program, args) = browser_command(&texts(&["chromium", "--incognito"]), "https://x");
+        assert_eq!(program, "chromium");
+        assert_eq!(args, texts(&["--incognito", "https://x"]));
+        let (program, args) = browser_command(&texts(&["firefox"]), "https://x");
+        assert_eq!((program.as_str(), args), ("firefox", texts(&["https://x"])));
+    }
+
+    #[test]
+    fn url_placeholder_replaces_the_last_argument() {
+        let (program, args) = browser_command(
+            &texts(&["chrome", "--app={url}", "--new-window"]),
+            "https://x",
+        );
+        assert_eq!(program, "chrome");
+        assert_eq!(args, texts(&["--app=https://x", "--new-window"]));
+    }
+
+    #[test]
+    fn windows_starts_a_bare_name_through_cmd_and_a_path_directly() {
+        let (program, args) = start_command("firefox", texts(&["-private", "https://x"]));
+        assert_eq!(program, "cmd");
+        assert_eq!(
+            args,
+            texts(&["/C", "start", "", "firefox", "-private", "https://x"])
+        );
+        let (program, args) = start_command("C:\\Apps\\ff.exe", texts(&["https://x"]));
+        assert_eq!(
+            (program.as_str(), args),
+            ("C:\\Apps\\ff.exe", texts(&["https://x"]))
+        );
+        assert_eq!(start_command("./ff", vec![]).0, "./ff");
+    }
+
+    #[test]
+    fn a_browser_that_cannot_start_is_an_error() {
+        assert!(spawn_detached("definitely-not-a-program-xyz", &[]).is_err());
     }
 
     #[test]

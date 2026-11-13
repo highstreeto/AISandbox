@@ -324,7 +324,7 @@ fn allow_rejects_an_invalid_host() {
 )]
 #[case(
     "[tool]\nnode = 24\n",
-    "sandbox.toml: unknown setting 'tool' (known: project, tools, desktop, env, share)."
+    "sandbox.toml: unknown setting 'tool' (known: project, tools, desktop, env, share, host)."
 )]
 #[case("project = 1\n", "sandbox.toml: project must be a table (got 1).")]
 #[case(

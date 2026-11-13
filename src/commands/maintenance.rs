@@ -1,7 +1,7 @@
 //! init, reset-home and info.
 
 use super::lifecycle;
-use crate::config::{self, FILE_NAME};
+use crate::config::{self, BrowserSetting, FILE_NAME, Settings};
 use crate::docker::Docker;
 use crate::engine::{self, embedded};
 use crate::paths::{self, full_path};
@@ -11,11 +11,16 @@ use crate::ui::Ui;
 use anyhow::{Result, bail};
 use console::measure_text_width;
 
-/// The files a project owns, created by `init` from the embedded templates.
-const PROJECT_FILES: [&str; 2] = [FILE_NAME, "allowlist.txt"];
+/// The files a project owns, created by `init` from the embedded templates: (file in `.sandbox/`, template in
+/// `resources/init/`). The ignore file's template has no leading dot so that it isn't a real `.gitignore` here.
+const PROJECT_FILES: [(&str, &str); 3] = [
+    (FILE_NAME, "sandbox.toml"),
+    ("allowlist.txt", "allowlist.txt"),
+    (".gitignore", "gitignore"),
+];
 
-/// Creates `<folder>/.sandbox/` with `sandbox.toml` and `allowlist.txt` (files that exist are kept), the `.state`
-/// folder and the engine. Runs without Docker and ignores `SANDBOX_DIR`.
+/// Creates `<folder>/.sandbox/` with `sandbox.toml`, `allowlist.txt` and `.gitignore` (files that exist are kept),
+/// the `.state` folder and the engine. Runs without Docker and ignores `SANDBOX_DIR`.
 pub fn init(ui: &Ui, folder: Option<&str>) -> Result<i32> {
     let cwd = paths::current_dir()?;
     let folder = folder.filter(|f| !f.trim().is_empty()).unwrap_or(".");
@@ -37,13 +42,13 @@ pub fn init(ui: &Ui, folder: Option<&str>) -> Result<i32> {
     check_old_layout(ui, &dir);
 
     paths::create_dir_all(&dir)?;
-    for name in PROJECT_FILES {
+    for (name, template) in PROJECT_FILES {
         let path = dir.join(name);
         if path.is_file() {
             println!("{}", ui.dim(format!("{name} exists \u{2014} kept")));
             continue;
         }
-        paths::write_text(&path, &embedded::read_text(&format!("init/{name}"))?)?;
+        paths::write_text(&path, &embedded::read_text(&format!("init/{template}"))?)?;
         ui.success(&format!("Created .sandbox/{name}"));
     }
 
@@ -113,6 +118,7 @@ pub fn info(ui: &Ui, project: &Project) -> Result<i32> {
             st.ui_port
                 .map_or("random free port".to_string(), |p| p.to_string()),
         ),
+        ("Browser".into(), browser_text(st)),
         (
             "Engine".into(),
             format!(
@@ -187,6 +193,19 @@ pub fn info(ui: &Ui, project: &Project) -> Result<i32> {
         ui.print_table(Some(&ui.bold("Shared folders [[share]]")), &shares, None);
     }
     Ok(0)
+}
+
+/// `[host] browser` and the file it comes from, e.g. `chromium --incognito (sandbox.local.toml)`.
+fn browser_text(st: &Settings) -> String {
+    let what = match &st.browser {
+        BrowserSetting::Default => "system default".to_string(),
+        BrowserSetting::Off => "off (nothing is opened)".to_string(),
+        BrowserSetting::Command(cmd) => cmd.join(" "),
+    };
+    match st.browser_source.file_name() {
+        Some(file) => format!("{what} ({file})"),
+        None => what,
+    }
 }
 
 fn yes_no(b: bool) -> &'static str {

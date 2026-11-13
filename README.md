@@ -20,7 +20,7 @@ and the engine files in `resources/` of this repository.
 ./sandbox init [folder]      # default: the current directory
 ```
 
-Creates `<folder>/.sandbox/` with `sandbox.toml` and `allowlist.txt` from templates, then the generated `.state/`
+Creates `<folder>/.sandbox/` with `sandbox.toml`, `allowlist.txt` and `.gitignore` (it keeps `sandbox.local.toml` out of git) from templates, then the generated `.state/`
 (see below). Files that already exist are kept and listed (`sandbox.toml exists — kept`), so it is safe to run again and
 only fills in what is missing. There is no `--force`: to start over, delete the file. It needs no Docker and ignores
 `SANDBOX_DIR`. If a parent folder already has a `.sandbox/`, it warns and creates a separate sandbox for the sub-folder.
@@ -58,7 +58,7 @@ actually ready and opens it in your browser. Accept the self-signed certificate.
 | `shell` / `claude` | Bash / Claude Code CLI inside the sandbox, in the project folder |
 | `rebuild` / `update` | After changing tools · newest versions of everything |
 | `reset-home` | Wipe the persistent home (logins, IDE settings) · `--yes` skips the question |
-| `init [folder]` | Create `.sandbox/` (`sandbox.toml`, `allowlist.txt`) in a project folder |
+| `init [folder]` | Create `.sandbox/` (`sandbox.toml`, `allowlist.txt`, `.gitignore`) in a project folder |
 | `info` | Project identity, mount path, engine version, settings, tools and shared folders as read from `sandbox.toml` |
 | `logs [service]` | Follow logs · `--tail <n>`, `--no-follow` |
 
@@ -101,6 +101,9 @@ memory = "8g"
 # security_opt = ["seccomp=unconfined"] # if GUI apps crash
 # auth = { user = "me", password = "secret" }   # basic auth for the web desktop
 
+[host]                      # on this machine
+# browser = "firefox"       # for up/open: see below
+
 [env]                       # extra environment variables
 # MY_VAR = "value"
 
@@ -117,6 +120,33 @@ e.g. `sandbox-install jetbrains rider`. With no arguments it lists the tools and
 Runtime installs are lost on rebuild, so put permanent tools in `sandbox.toml`.
 `rust` installs rustup with rustfmt, clippy, rust-src and rust-analyzer; the toolchains live in `/usr/local/rustup`, while
 `~/.cargo` (crate registry cache, `cargo install`ed tools) persists in the home volume.
+
+**Browser.** `[host] browser` says how `up` and `open` show the desktop:
+
+| Value | |
+|---|---|
+| not set, `"default"` or `true` | The system's default browser |
+| `false` | Never open a browser (`up` just prints the URL; so does `open`) |
+| `"firefox"` | A program on `PATH`, or a full path |
+| `["chromium", "--incognito"]` | A program with arguments; the address is added as the last one |
+| `["chrome", "--app={url}"]` | `{url}` in an argument is replaced by the address instead (at most once) |
+
+The command is started in the background and its output is discarded. If it can't be started you get a warning with
+the address; it does not fall back to the default browser. On Windows a name without a path (`firefox`, `msedge`,
+`chrome`) is started through `cmd /C start`, so apps registered with Windows work without being on `PATH`.
+`up --no-browser` always wins. `sandbox info` shows the setting and the file it comes from.
+
+**Personal settings: `sandbox.local.toml`.** Your browser is your own choice, so `[host]` can also be set in
+`.sandbox/sandbox.local.toml`, next to `sandbox.toml`. It is optional and **not committed** (`init` creates a
+`.sandbox/.gitignore` that lists it; the app warns if it exists but isn't ignored). Only `[host]` is allowed in it
+(`sandbox.local.toml: only [host] can be set here (found 'tools').`): everything that shapes the sandbox stays in the
+committed file. A key set in it overrides the same key in `sandbox.toml`.
+
+```toml
+# .sandbox/sandbox.local.toml
+[host]
+browser = ["chromium", "--incognito"]
+```
 
 **Checked.** Unknown sections, keys and tools are errors that list the valid names, and so are wrong types and invalid
 values (`workspace = "rx"`, a share folder that doesn't exist, broken TOML with its line and column).
@@ -135,6 +165,8 @@ written by the template itself, so nothing in `sandbox.toml` can change them.
 .sandbox/
   sandbox.toml          yours: settings                      (commit)
   allowlist.txt         yours: network allowlist             (commit)
+  .gitignore            keeps sandbox.local.toml out of git  (commit)
+  sandbox.local.toml    yours, optional: [host] only         (not committed)
   .state/               generated, ignores itself (its own .gitignore holds "*")
     id                  stable project id
     .manifest           what the app wrote last time: file hashes, engine hash, app version
@@ -161,7 +193,7 @@ app version and the engine hash.
 **Migrating from the old layout.** Earlier versions copied the engine into each project as `.sandbox/engine/`. That
 folder is no longer used. The app warns about it on every command but never deletes it, because it is committed and may
 hold your own edits. Once you have checked that nothing in it is needed, delete `.sandbox/engine/`,
-`.sandbox/README.md`, `.sandbox/.gitattributes` and `.sandbox/.gitignore` (the `.state/` folder ignores itself).
+`.sandbox/README.md` and `.sandbox/.gitattributes` (the `.state/` folder ignores itself).
 
 ## Network: `allowlist.txt`
 

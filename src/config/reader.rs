@@ -3,12 +3,14 @@
 //! Not `serde` with `deny_unknown_fields` on purpose: the error texts (`unknown key 'project.workspace_mode' (known:
 //! name, workspace, protect_git, ui_port)`, `must be true or false (got "maybe")`) can't be produced that way.
 
-use super::{error, format_number};
+use super::{FILE_NAME, error_in, format_number};
 use anyhow::Result;
 use toml::{Table, Value};
 
 #[derive(Debug)]
 pub struct TableReader<'a> {
+    /// The file the table is from: the prefix of every message.
+    file: &'static str,
     table: &'a Table,
     path: String,
     /// Keys read, in the order they were read; that order is the "known" list in messages.
@@ -16,9 +18,15 @@ pub struct TableReader<'a> {
 }
 
 impl<'a> TableReader<'a> {
-    /// `path` is the table's dotted name in messages ("" for the root).
+    /// `path` is the table's dotted name in messages ("" for the root). Messages name `sandbox.toml`.
     pub fn new(table: &'a Table, path: &str) -> Self {
+        Self::new_in(FILE_NAME, table, path)
+    }
+
+    /// Like `new`, for a table from another file (`sandbox.local.toml`).
+    pub fn new_in(file: &'static str, table: &'a Table, path: &str) -> Self {
         Self {
+            file,
             table,
             path: path.to_string(),
             used: Vec::new(),
@@ -49,11 +57,14 @@ impl<'a> TableReader<'a> {
         match self.raw(key) {
             None => Ok(None),
             Some(Value::String(s)) => Ok(Some(s)),
-            Some(v) => Err(error(format!(
-                "{} must be a text in quotes (got {}).",
-                self.name(key),
-                show(v)
-            ))),
+            Some(v) => Err(error_in(
+                self.file,
+                format!(
+                    "{} must be a text in quotes (got {}).",
+                    self.name(key),
+                    show(v)
+                ),
+            )),
         }
     }
 
@@ -61,11 +72,14 @@ impl<'a> TableReader<'a> {
         match self.raw(key) {
             None => Ok(None),
             Some(Value::Boolean(b)) => Ok(Some(*b)),
-            Some(v) => Err(error(format!(
-                "{} must be true or false (got {}).",
-                self.name(key),
-                show(v)
-            ))),
+            Some(v) => Err(error_in(
+                self.file,
+                format!(
+                    "{} must be true or false (got {}).",
+                    self.name(key),
+                    show(v)
+                ),
+            )),
         }
     }
 
@@ -73,11 +87,14 @@ impl<'a> TableReader<'a> {
         match self.raw(key) {
             None => Ok(None),
             Some(Value::Integer(n)) => Ok(Some(*n)),
-            Some(v) => Err(error(format!(
-                "{} must be a whole number (got {}).",
-                self.name(key),
-                show(v)
-            ))),
+            Some(v) => Err(error_in(
+                self.file,
+                format!(
+                    "{} must be a whole number (got {}).",
+                    self.name(key),
+                    show(v)
+                ),
+            )),
         }
     }
 
@@ -86,11 +103,10 @@ impl<'a> TableReader<'a> {
             None => Ok(None),
             Some(Value::Integer(n)) => Ok(Some(*n as f64)),
             Some(Value::Float(d)) => Ok(Some(*d)),
-            Some(v) => Err(error(format!(
-                "{} must be a number (got {}).",
-                self.name(key),
-                show(v)
-            ))),
+            Some(v) => Err(error_in(
+                self.file,
+                format!("{} must be a number (got {}).", self.name(key), show(v)),
+            )),
         }
     }
 
@@ -101,11 +117,14 @@ impl<'a> TableReader<'a> {
             Some(Value::Boolean(b)) => Ok(b.to_string()),
             Some(Value::Integer(n)) => Ok(n.to_string()),
             Some(Value::Float(d)) => Ok(format_number(*d)),
-            other => Err(error(format!(
-                "{} must be a text, number or true/false (got {}).",
-                self.name(key),
-                other.map_or("nothing".to_string(), show)
-            ))),
+            other => Err(error_in(
+                self.file,
+                format!(
+                    "{} must be a text, number or true/false (got {}).",
+                    self.name(key),
+                    other.map_or("nothing".to_string(), show)
+                ),
+            )),
         }
     }
 
@@ -116,23 +135,25 @@ impl<'a> TableReader<'a> {
                 .iter()
                 .filter_map(|x| x.as_str().map(str::to_string))
                 .collect()),
-            Some(v) => Err(error(format!(
-                "{} must be a list of texts, e.g. [\"a\", \"b\"] (got {}).",
-                self.name(key),
-                show(v)
-            ))),
+            Some(v) => Err(error_in(
+                self.file,
+                format!(
+                    "{} must be a list of texts, e.g. [\"a\", \"b\"] (got {}).",
+                    self.name(key),
+                    show(v)
+                ),
+            )),
         }
     }
 
     pub fn opt_table(&mut self, key: &str) -> Result<Option<TableReader<'a>>> {
         match self.raw(key) {
             None => Ok(None),
-            Some(Value::Table(t)) => Ok(Some(TableReader::new(t, &self.name(key)))),
-            Some(v) => Err(error(format!(
-                "{} must be a table (got {}).",
-                self.name(key),
-                show(v)
-            ))),
+            Some(Value::Table(t)) => Ok(Some(TableReader::new_in(self.file, t, &self.name(key)))),
+            Some(v) => Err(error_in(
+                self.file,
+                format!("{} must be a table (got {}).", self.name(key), show(v)),
+            )),
         }
     }
 
@@ -140,7 +161,7 @@ impl<'a> TableReader<'a> {
     pub fn table(&mut self, key: &str) -> Result<TableReader<'a>> {
         Ok(match self.opt_table(key)? {
             Some(t) => t,
-            None => TableReader::new(empty_table(), &self.name(key)),
+            None => TableReader::new_in(self.file, empty_table(), &self.name(key)),
         })
     }
 
@@ -151,13 +172,16 @@ impl<'a> TableReader<'a> {
             Some(Value::Array(a)) if a.iter().all(Value::is_table) => Ok(a
                 .iter()
                 .filter_map(Value::as_table)
-                .map(|t| TableReader::new(t, &self.name(key)))
+                .map(|t| TableReader::new_in(self.file, t, &self.name(key)))
                 .collect()),
-            Some(v) => Err(error(format!(
-                "{} must be written as [[{key}]] blocks (got {}).",
-                self.name(key),
-                show(v)
-            ))),
+            Some(v) => Err(error_in(
+                self.file,
+                format!(
+                    "{} must be written as [[{key}]] blocks (got {}).",
+                    self.name(key),
+                    show(v)
+                ),
+            )),
         }
     }
 
@@ -172,11 +196,14 @@ impl<'a> TableReader<'a> {
         } else {
             format!(" (known: {})", self.used.join(", "))
         };
-        Err(error(if what == "table" {
-            format!("unknown setting '{unknown}'{known}.")
-        } else {
-            format!("unknown key '{}'{known}.", self.name(unknown))
-        }))
+        Err(error_in(
+            self.file,
+            if what == "table" {
+                format!("unknown setting '{unknown}'{known}.")
+            } else {
+                format!("unknown key '{}'{known}.", self.name(unknown))
+            },
+        ))
     }
 
     fn name(&self, key: &str) -> String {
