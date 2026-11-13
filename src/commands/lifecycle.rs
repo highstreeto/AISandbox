@@ -14,7 +14,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const CLAUDE_SCRIPT: &str = "command -v claude >/dev/null || { echo \"Claude Code CLI not installed: set claude_code under [tools] in sandbox.toml and rebuild.\"; exit 1; }; exec claude \"$@\"";
 
 pub fn up(d: &Docker, open_browser: bool) -> Result<i32> {
-    d.check_collision()?;
     build(d, false)?;
     start_and_wait(d, true)?;
     std::thread::sleep(Duration::from_secs(2));
@@ -105,6 +104,7 @@ pub fn claude(ui: &Ui, verbose: bool, args: &[String]) -> Result<i32> {
     let project = Project::load(ui)?;
     let d = Docker::new(&project, verbose, ui);
     d.need_docker()?;
+    d.check_collision()?;
     for path in compose::generate(&project)?.restored {
         warn_restored(ui, &path);
     }

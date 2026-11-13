@@ -27,7 +27,8 @@ pub const VERSION: &str = env!("SANDBOX_VERSION");
 ///
 /// The order of side effects is what the tests assert: `claude` is handled before the command line is parsed (all its
 /// arguments, `--help` and `-v` included, belong to claude); `init`, `allowlist` and `info` need no Docker; every
-/// other command loads the project, checks Docker, regenerates `.state/` and then runs.
+/// other command loads the project, checks Docker, refuses a container group that belongs to another project,
+/// regenerates `.state/` and then runs.
 pub fn run(args: Vec<String>) -> i32 {
     let ui = Ui::new();
     match run_inner(&ui, args) {
@@ -64,6 +65,7 @@ fn run_inner(ui: &Ui, args: Vec<String>) -> Result<i32> {
             let project = Project::load(ui)?;
             let docker = Docker::new(&project, verbose, ui);
             docker.need_docker()?;
+            docker.check_collision()?;
             for rel in compose::generate(&project)?.restored {
                 lifecycle::warn_restored(ui, &rel);
             }

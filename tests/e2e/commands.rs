@@ -78,7 +78,7 @@ fn stop_down_restart(#[case] cmd: &str) {
     let f = Fixture::new();
     let r = f.run(&[cmd]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.compose(&[cmd])]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&[cmd])]);
     assert_output(&r, ": done.");
 }
 
@@ -89,7 +89,7 @@ fn status_lists_services_and_url(#[case] cmd: &str) {
     let f = Fixture::new();
     let r = f.run(&[cmd]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), ps(&f), port(&f)]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), ps(&f), port(&f)]);
     for s in [
         "desktop",
         "gateway",
@@ -110,7 +110,7 @@ fn status_without_containers() {
         RunOpts::default().rules(vec![rule("ps -a --format json")]),
     );
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), ps(&f)]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), ps(&f)]);
     assert_output(&r, "No containers for 'demo-project'");
 }
 
@@ -120,7 +120,7 @@ fn open_asks_for_the_port_and_opens_the_browser() {
     let f = Fixture::new();
     let r = f.run_with(&["open"], RunOpts::default().wait_for("xdg-open"));
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), port(&f), call("xdg-open", &[URL])]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), port(&f), call("xdg-open", &[URL])]);
 }
 
 #[test]
@@ -132,6 +132,7 @@ fn shell_execs_bash_in_the_project_folder() {
         &r,
         &[
             docker_info(),
+            f.collision_check(PROJECT_NAME),
             f.compose_interactive(&[
                 "exec",
                 "-u",
@@ -171,7 +172,7 @@ fn claude_forwards_all_arguments_verbatim(#[case] args: &[&str]) {
         "claude",
     ];
     expected.extend_from_slice(args);
-    assert_calls(&r, &[docker_info(), f.compose_interactive(&expected)]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose_interactive(&expected)]);
 }
 
 #[test]
@@ -183,6 +184,7 @@ fn logs_follow_by_default() {
         &r,
         &[
             docker_info(),
+            f.collision_check(PROJECT_NAME),
             f.compose_interactive(&["logs", "--tail=100", "-f"]),
         ],
     );
@@ -197,6 +199,7 @@ fn logs_with_services_tail_and_no_follow() {
         &r,
         &[
             docker_info(),
+            f.collision_check(PROJECT_NAME),
             f.compose_interactive(&["logs", "--tail=5", "proxy", "desktop"]),
         ],
     );
@@ -210,7 +213,7 @@ fn allow_uncomments_an_entry_and_reloads_the_proxy() {
     assert!(lines_of(&f.allowlist_file()).contains(&"# api.nuget.org".to_string()));
     let r = f.run(&["allow", "api.nuget.org", "new.example.com", "claude.ai"]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.compose(&["restart", "proxy"])]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&["restart", "proxy"])]);
     let lines = lines_of(&f.allowlist_file());
     assert!(lines.contains(&"api.nuget.org".to_string()));
     assert!(!lines.contains(&"# api.nuget.org".to_string()));
@@ -227,7 +230,7 @@ fn deny_comments_an_entry_and_reloads_the_proxy() {
     let f = Fixture::new();
     let r = f.run(&["deny", "claude.ai", "not-there.example.com"]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.compose(&["restart", "proxy"])]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&["restart", "proxy"])]);
     let lines = lines_of(&f.allowlist_file());
     assert!(lines.contains(&"# claude.ai".to_string()));
     assert!(!lines.contains(&"claude.ai".to_string()));
@@ -240,7 +243,7 @@ fn reload_restarts_the_proxy() {
     let f = Fixture::new();
     let r = f.run(&["reload"]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.compose(&["restart", "proxy"])]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&["restart", "proxy"])]);
 }
 
 #[test]
@@ -262,6 +265,7 @@ fn blocked_counts_refused_hosts_from_the_proxy_log() {
         &r,
         &[
             docker_info(),
+            f.collision_check(PROJECT_NAME),
             f.compose(&["logs", "--no-log-prefix", "proxy"]),
         ],
     );
@@ -288,6 +292,7 @@ fn blocked_with_nothing_blocked() {
         &r,
         &[
             docker_info(),
+            f.collision_check(PROJECT_NAME),
             f.compose(&["logs", "--no-log-prefix", "proxy"]),
         ],
     );
@@ -322,6 +327,7 @@ fn rebuild_builds_and_starts() {
         &r,
         &[
             docker_info(),
+            f.collision_check(PROJECT_NAME),
             f.compose_interactive(&["build"]),
             up_wait(&f),
         ],
@@ -334,9 +340,10 @@ fn update_pulls_and_busts_the_cache() {
     let f = Fixture::new();
     let r = f.run(&["update"]);
     assert_exit(&r, 0);
-    assert_eq!(r.calls.len(), 3, "{r}");
+    assert_eq!(r.calls.len(), 4, "{r}");
     assert_eq!(r.calls[0].to_string(), docker_info().to_string());
-    let build = &r.calls[1].args;
+    assert_eq!(r.calls[1], f.collision_check(PROJECT_NAME));
+    let build = &r.calls[2].args;
     let prefix = f
         .compose_interactive(&["build", "--pull", "--build-arg"])
         .args;
@@ -348,7 +355,7 @@ fn update_pulls_and_busts_the_cache() {
             .is_match(build.last().unwrap()),
         "{r}"
     );
-    assert_eq!(r.calls[2].to_string(), up_wait(&f).to_string());
+    assert_eq!(r.calls[3].to_string(), up_wait(&f).to_string());
 }
 
 #[test]
@@ -360,6 +367,7 @@ fn reset_home_removes_containers_and_the_volume() {
         &r,
         &[
             docker_info(),
+            f.collision_check(PROJECT_NAME),
             f.compose(&["down"]),
             docker(&["volume", "rm", "demo-project_home"]),
         ],
@@ -431,7 +439,7 @@ fn verbose_prints_the_docker_commands() {
     let f = Fixture::new();
     let r = f.run(&["status", "-v"]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), ps(&f), port(&f)]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), ps(&f), port(&f)]);
     assert_output(&r, "$ docker info --format {{.ServerVersion}}");
     assert_output(
         &r,

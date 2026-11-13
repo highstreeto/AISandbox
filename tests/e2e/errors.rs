@@ -55,6 +55,33 @@ fn up_refuses_a_container_group_of_another_project() {
     );
 }
 
+/// Every command that touches containers checks first: `rebuild` would recreate the other project's containers
+/// (and mount its home volume), `reset-home` would delete that home, `allow` would restart its proxy.
+#[rstest]
+#[case(&["rebuild"])]
+#[case(&["update"])]
+#[case(&["reset-home", "--yes"])]
+#[case(&["stop"])]
+#[case(&["down"])]
+#[case(&["shell"])]
+#[case(&["allow", "x.example.com"])]
+#[case(&["claude", "--version"])]
+fn commands_refuse_a_container_group_of_another_project(#[case] args: &[&str]) {
+    let f = Fixture::new();
+    let allowlist = fs::read_to_string(f.allowlist_file()).unwrap();
+    let r = f.run_with(
+        args,
+        RunOpts::default().rules(vec![rule("ps -a --filter").stdout("ffffffff\n")]),
+    );
+    assert_exit(&r, 1);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME)]);
+    assert_output(
+        &r,
+        "Another project already uses the container group 'demo-project'.",
+    );
+    assert_eq!(allowlist, fs::read_to_string(f.allowlist_file()).unwrap());
+}
+
 #[test]
 fn up_stops_when_the_build_fails() {
     let f = Fixture::new();
@@ -140,6 +167,7 @@ fn rebuild_does_not_tolerate_an_unhealthy_desktop() {
         &r,
         &[
             docker_info(),
+            f.collision_check(PROJECT_NAME),
             f.compose_interactive(&["build"]),
             up_wait(&f),
         ],
@@ -173,7 +201,7 @@ fn compose_failure_shows_the_output(#[case] cmd: &str, #[case] what: &str) {
         ]),
     );
     assert_exit(&r, 1);
-    assert_calls(&r, &[docker_info(), f.compose(&[cmd])]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&[cmd])]);
     assert_output(&r, &format!("docker compose {cmd} (exit 3)"));
     assert_output(&r, "no such service");
     assert_output(&r, &format!("{what} failed."));
@@ -193,7 +221,7 @@ fn open_when_not_running(#[case] mode: &str) {
     assert_exit(&r, 1);
     assert_calls(
         &r,
-        &[docker_info(), f.compose(&["port", "gateway", "3001"])],
+        &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&["port", "gateway", "3001"])],
     );
     assert_output(&r, "The sandbox is not running");
 }
@@ -203,7 +231,7 @@ fn reset_home_needs_confirmation_when_not_interactive() {
     let f = Fixture::new();
     let r = f.run(&["reset-home"]);
     assert_exit(&r, 1);
-    assert_calls(&r, &[docker_info()]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME)]);
     assert_output(
         &r,
         "Refusing to delete the home volume without confirmation (use --yes).",
@@ -222,6 +250,7 @@ fn reset_home_reports_a_failed_volume_removal() {
         &r,
         &[
             docker_info(),
+            f.collision_check(PROJECT_NAME),
             f.compose(&["down"]),
             docker(&["volume", "rm", "demo-project_home"]),
         ],
@@ -239,7 +268,7 @@ fn reload_failure() {
         ]),
     );
     assert_exit(&r, 1);
-    assert_calls(&r, &[docker_info(), f.compose(&["restart", "proxy"])]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&["restart", "proxy"])]);
     assert_output(&r, "Could not restart the proxy.");
 }
 
@@ -249,7 +278,7 @@ fn allow_rejects_an_invalid_host() {
     let before = fs::read_to_string(f.allowlist_file()).unwrap();
     let r = f.run(&["allow", "ok.example.com", "bad host!"]);
     assert_exit(&r, 1);
-    assert_calls(&r, &[docker_info()]);
+    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME)]);
     assert_output(&r, "Not a valid host name: 'bad host!'.");
     assert_eq!(before, fs::read_to_string(f.allowlist_file()).unwrap());
 }

@@ -12,7 +12,6 @@ static GROUP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^#\s*---\s*(.+?)\s
 static DISABLED: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^#\s*([A-Za-z0-9*][A-Za-z0-9*._:-]*\.[A-Za-z0-9*._:-]+)\s*(?:#\s*(.*))?$").unwrap()
 });
-static TRAILING_COMMENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*#.*$").unwrap());
 
 /// One host in `allowlist.txt`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,8 +78,7 @@ impl Allowlist {
     }
 
     pub fn allow(&mut self, host: &str) -> AllowOutcome {
-        let active = active_line(host);
-        if self.lines.iter().any(|l| active.is_match(l)) {
+        if self.lines.iter().any(|l| enables(l, host)) {
             return AllowOutcome::AlreadyAllowed;
         }
         let commented =
@@ -99,10 +97,9 @@ impl Allowlist {
 
     /// Comments out every active line for the host; false if there was none.
     pub fn deny(&mut self, host: &str) -> bool {
-        let active = active_line(host);
         let mut any = false;
         for line in &mut self.lines {
-            if active.is_match(line) {
+            if enables(line, host) {
                 *line = format!("# {line}");
                 any = true;
             }
@@ -123,16 +120,13 @@ impl Allowlist {
                 group = Some(g[1].to_string());
                 continue;
             }
-            if !line.starts_with('#') {
-                let host = TRAILING_COMMENT.replace(line, "").into_owned();
-                if !host.is_empty() {
-                    entries.push(AllowEntry {
-                        host,
-                        group: group.clone().unwrap_or_default(),
-                        active: true,
-                        note: String::new(),
-                    });
-                }
+            if let Some(host) = active_host(line) {
+                entries.push(AllowEntry {
+                    host: host.to_string(),
+                    group: group.clone().unwrap_or_default(),
+                    active: true,
+                    note: String::new(),
+                });
             } else if let (Some(g), Some(d)) = (&group, DISABLED.captures(line)) {
                 entries.push(AllowEntry {
                     host: d[1].to_string(),
@@ -156,8 +150,24 @@ impl Allowlist {
     }
 }
 
-fn active_line(host: &str) -> Regex {
-    Regex::new(&format!(r"(?i)^{}(\s|$)", regex::escape(host))).unwrap()
+/// The host pattern a line enables, read the way tinyproxy reads its filter file: leading whitespace is skipped, a
+/// line starting with `#` is a comment, and the pattern ends at the first whitespace or `#`. `allow`, `deny`,
+/// `allowlist` and `blocked` all use this, so they agree with each other and with the proxy (an indented
+/// `  example.com` or `example.com#note` is active, and `deny` comments it out).
+fn active_host(line: &str) -> Option<&str> {
+    let line = line.trim_start();
+    if line.starts_with('#') {
+        return None;
+    }
+    let end = line
+        .find(|c: char| c.is_whitespace() || c == '#')
+        .unwrap_or(line.len());
+    Some(&line[..end]).filter(|h| !h.is_empty())
+}
+
+/// Whether the line is an active entry for exactly this host (case-insensitive).
+fn enables(line: &str, host: &str) -> bool {
+    active_host(line).is_some_and(|h| h.eq_ignore_ascii_case(host))
 }
 
 #[cfg(test)]
@@ -220,6 +230,33 @@ mod tests {
         let mut l = Allowlist::parse(Utf8Path::new("x"), "a.com\na.com extra\nb.com\n");
         assert!(l.deny("a.com"));
         assert_eq!(l.lines, vec!["# a.com", "# a.com extra", "b.com"]);
+    }
+
+    #[test]
+    fn indented_lines_and_comments_without_a_space_are_active_and_can_be_denied() {
+        let mut l = Allowlist::parse(
+            Utf8Path::new("x"),
+            "# --- G ---\n  evil.com\nother.com#note\n\t# off.com\n",
+        );
+        let active: Vec<String> = l
+            .entries()
+            .into_iter()
+            .filter(|e| e.active)
+            .map(|e| e.host)
+            .collect();
+        assert_eq!(active, vec!["evil.com", "other.com"]);
+        assert!(l.is_allowed("evil.com") && l.is_allowed("other.com"));
+        assert_eq!(l.allow("EVIL.com"), AllowOutcome::AlreadyAllowed);
+        assert_eq!(l.allow("other.com"), AllowOutcome::AlreadyAllowed);
+
+        assert!(l.deny("evil.com"));
+        assert!(l.deny("other.com"));
+        assert!(!l.is_allowed("evil.com") && !l.is_allowed("other.com"));
+        assert_eq!(l.lines[1], "#   evil.com");
+        assert_eq!(l.lines[2], "# other.com#note");
+        // a longer host that starts with the same text is a different entry
+        let mut l = Allowlist::parse(Utf8Path::new("x"), "evil.com.example.org\n");
+        assert!(!l.deny("evil.com"));
     }
 
     #[test]

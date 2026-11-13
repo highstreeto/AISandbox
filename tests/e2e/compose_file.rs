@@ -15,7 +15,11 @@ fn header(f: &Fixture) -> String {
 
 /// Run a cheap docker command so the file is (re)generated, and return its text.
 fn generate(f: &Fixture) -> String {
-    let r = f.run(&["status"]);
+    // No containers yet: some tests change the id, which must not count as another project's container group.
+    let r = f.run_with(
+        &["status"],
+        RunOpts::default().rules(vec![rule("ps -a --filter").stdout("")]),
+    );
     assert_exit(&r, 0);
     assert!(f.generated_file().exists(), "No generated file.\n{r}");
     fs::read_to_string(f.generated_file()).unwrap()
