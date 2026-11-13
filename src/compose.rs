@@ -209,22 +209,22 @@ pub fn mounts(project: &Project) -> Vec<MountModel> {
         target: wd.clone(),
         read_only: s.read_only,
     }];
-    // The sandbox config is visible but read-only: the agent can't widen its allowlist.
-    mounts.push(MountModel {
-        source: project.dir.to_string(),
-        target: format!("{wd}/{}", project.dir.file_name().unwrap_or(".sandbox")),
-        read_only: true,
-    });
+    if !s.read_only {
+        // The sandbox config is visible but read-only: the agent can't widen its allowlist.
+        mounts.push(MountModel {
+            source: project.dir.to_string(),
+            target: format!("{wd}/{}", project.dir.file_name().unwrap_or(".sandbox")),
+            read_only: true,
+        });
+    }
     if s.protect_git && !s.read_only {
-        for p in ["config", "hooks"] {
-            let src = project.project_dir.join(".git").join(p);
-            if src.exists() {
-                mounts.push(MountModel {
-                    source: src.to_string(),
-                    target: format!("{wd}/.git/{p}"),
-                    read_only: true,
-                });
-            }
+        let git_dir = project.project_dir.join(".git");
+        if git_dir.exists() {
+            mounts.push(MountModel {
+                source: git_dir.to_string(),
+                target: format!("{wd}/.git"),
+                read_only: true,
+            });
         }
     }
     for sh in &s.shares {

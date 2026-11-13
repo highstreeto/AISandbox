@@ -153,17 +153,10 @@ fn project(f: &Fixture, ro: bool) -> Bind {
 fn sandbox_dir(f: &Fixture) -> Bind {
     bind(f.dir.as_str(), format!("{}/.sandbox", f.work_dir()), true)
 }
-fn git_config(f: &Fixture) -> Bind {
+fn git_dir(f: &Fixture) -> Bind {
     bind(
-        f.project_dir.join(".git").join("config").as_str(),
-        format!("{}/.git/config", f.work_dir()),
-        true,
-    )
-}
-fn git_hooks(f: &Fixture) -> Bind {
-    bind(
-        f.project_dir.join(".git").join("hooks").as_str(),
-        format!("{}/.git/hooks", f.work_dir()),
+        f.project_dir.join(".git").as_str(),
+        format!("{}/.git", f.work_dir()),
         true,
     )
 }
@@ -287,8 +280,7 @@ fn default_file_matches_exactly() {
         "      - home:/config            # persistent home: logins, IDE settings, Toolbox IDEs".into(),
         vol(project(&f, false)),
         vol(sandbox_dir(&f)),
-        vol(git_config(&f)),
-        vol(git_hooks(&f)),
+        vol(git_dir(&f)),
         "    networks: [sandbox]".into(),
         "    mem_limit: \"8g\"".into(),
         "    pids_limit: 4096".into(),
@@ -347,8 +339,7 @@ fn default_file_parses() {
         [
             project(&f, false),
             sandbox_dir(&f),
-            git_config(&f),
-            git_hooks(&f)
+            git_dir(&f)
         ]
     );
 }
@@ -415,7 +406,7 @@ fn read_only_workspace_has_no_git_mounts() {
     );
     assert_eq!(
         binds(&generate_parsed(&f)),
-        [project(&f, true), sandbox_dir(&f)]
+        [project(&f, true)]
     );
 }
 
@@ -438,7 +429,7 @@ fn only_existing_git_paths_are_protected() {
     fs::remove_dir(f.project_dir.join(".git").join("hooks")).unwrap();
     assert_eq!(
         binds(&generate_parsed(&f)),
-        [project(&f, false), sandbox_dir(&f), git_config(&f)]
+        [project(&f, false), sandbox_dir(&f), git_dir(&f)]
     );
 
     fs::remove_dir_all(f.project_dir.join(".git")).unwrap();
@@ -567,8 +558,7 @@ fn an_empty_sandbox_toml_uses_the_defaults() {
         [
             project(&f, false),
             sandbox_dir(&f),
-            git_config(&f),
-            git_hooks(&f)
+            git_dir(&f)
         ]
     );
 }
@@ -658,8 +648,7 @@ fn shares_are_mounted_after_the_project() {
         [
             project(&f, false),
             sandbox_dir(&f),
-            git_config(&f),
-            git_hooks(&f),
+            git_dir(&f),
             bind(docs.as_str(), "/shares/docs", true),
             bind(data.as_str(), "/data", false)
         ]
