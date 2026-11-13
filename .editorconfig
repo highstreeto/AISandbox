@@ -8,66 +8,11 @@ indent_style = space
 indent_size = 4
 trim_trailing_whitespace = true
 
-[*.{csproj,props,targets,slnx,xml,json,yml,toml}]
+[*.{json,yml,toml}]
 indent_size = 2
 
 [*.cmd]
 end_of_line = crlf
 
-[*.cs]
-# Layout
-csharp_style_namespace_declarations = file_scoped:warning
-csharp_using_directive_placement = outside_namespace:warning
-dotnet_sort_system_directives_first = true
-
-# Naming: private instance fields _camelCase, private static fields s_camelCase, constants PascalCase
-dotnet_naming_symbols.private_instance_fields.applicable_kinds = field
-dotnet_naming_symbols.private_instance_fields.applicable_accessibilities = private
-dotnet_naming_style.underscore_camel.required_prefix = _
-dotnet_naming_style.underscore_camel.capitalization = camel_case
-dotnet_naming_rule.private_instance_fields.symbols = private_instance_fields
-dotnet_naming_rule.private_instance_fields.style = underscore_camel
-dotnet_naming_rule.private_instance_fields.severity = warning
-
-dotnet_naming_symbols.private_static_fields.applicable_kinds = field
-dotnet_naming_symbols.private_static_fields.applicable_accessibilities = private
-dotnet_naming_symbols.private_static_fields.required_modifiers = static
-dotnet_naming_style.s_camel.required_prefix = s_
-dotnet_naming_style.s_camel.capitalization = camel_case
-dotnet_naming_rule.private_static_fields.symbols = private_static_fields
-dotnet_naming_rule.private_static_fields.style = s_camel
-dotnet_naming_rule.private_static_fields.severity = warning
-
-dotnet_naming_symbols.constants.applicable_kinds = field
-dotnet_naming_symbols.constants.required_modifiers = const
-dotnet_naming_style.pascal.capitalization = pascal_case
-dotnet_naming_rule.constants.symbols = constants
-dotnet_naming_rule.constants.style = pascal
-dotnet_naming_rule.constants.severity = warning
-
-# Order matters: constants before static fields before instance fields.
-dotnet_naming_rule.constants.priority = 1
-dotnet_naming_rule.private_static_fields.priority = 2
-dotnet_naming_rule.private_instance_fields.priority = 3
-
-# Accessibility modifiers are always written out
-dotnet_style_require_accessibility_modifiers = always:warning
-
-# Analyzer rules that don't fit a console app
-dotnet_diagnostic.CA1303.severity = none   # literals as localized parameters
-dotnet_diagnostic.CA1515.severity = none   # make public types internal (tests are public by xunit's rules)
-dotnet_diagnostic.CA1031.severity = none   # catch general exception (top-level handler, best-effort browser start)
-dotnet_diagnostic.CA1305.severity = none   # IFormatProvider: numbers are formatted with InvariantCulture where it matters
-dotnet_diagnostic.CA1307.severity = none   # StringComparison overloads for ordinal-by-default APIs
-dotnet_diagnostic.CA1310.severity = none
-dotnet_diagnostic.CA1311.severity = none
-dotnet_diagnostic.CA1707.severity = none   # underscores in test method names
-
-[tests/**.cs]
-dotnet_style_require_accessibility_modifiers = omit_if_default:none
-dotnet_naming_rule.private_instance_fields.severity = none
-dotnet_naming_rule.private_static_fields.severity = none
-dotnet_diagnostic.CA1711.severity = none   # xunit's "...Collection" fixture naming
-dotnet_diagnostic.CA1716.severity = none   # Call / Rule records for the fake docker log
-dotnet_diagnostic.CA1822.severity = none   # helpers on the test base class read like instance members
-dotnet_diagnostic.CA1861.severity = none   # inline expected-argument arrays
+[*.rs]
+indent_size = 4

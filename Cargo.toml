@@ -1,0 +1,60 @@
+[package]
+name = "ai-sandbox"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "AI Sandbox control app: a desktop for a project, reachable only through an allowlist proxy"
+license = "MIT"
+default-run = "sandbox"
+build = "build.rs"
+autotests = false
+
+[lib]
+name = "ai_sandbox"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sandbox"
+path = "src/main.rs"
+
+[[bin]]
+name = "fake-docker"
+path = "tests/fake_docker/main.rs"
+test = false
+
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+camino = "1.2"
+clap = { version = "4.6", features = ["derive"] }
+comfy-table = { version = "8.0", features = ["custom_styling"] }
+console = "0.16"
+ctrlc = "3.5"
+iana-time-zone = "0.1"
+include_dir = "0.7"
+indicatif = "0.18"
+minijinja = { version = "3.1", features = ["serde"] }
+regex = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.11"
+toml = { version = "1.2", default-features = false, features = ["parse", "serde", "preserve_order"] }
+which = "8.0"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1", features = ["process"] }
+
+[dev-dependencies]
+assert_cmd = "2.2"
+rstest = "0.28"
+tempfile = "3"
+yaml-rust2 = "0.13"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
