@@ -201,7 +201,14 @@ fn compose_failure_shows_the_output(#[case] cmd: &str, #[case] what: &str) {
         ]),
     );
     assert_exit(&r, 1);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&[cmd])]);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&[cmd]),
+        ],
+    );
     assert_output(&r, &format!("docker compose {cmd} (exit 3)"));
     assert_output(&r, "no such service");
     assert_output(&r, &format!("{what} failed."));
@@ -221,7 +228,11 @@ fn open_when_not_running(#[case] mode: &str) {
     assert_exit(&r, 1);
     assert_calls(
         &r,
-        &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&["port", "gateway", "3001"])],
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&["port", "gateway", "3001"]),
+        ],
     );
     assert_output(&r, "The sandbox is not running");
 }
@@ -268,7 +279,14 @@ fn reload_failure() {
         ]),
     );
     assert_exit(&r, 1);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&["restart", "proxy"])]);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&["restart", "proxy"]),
+        ],
+    );
     assert_output(&r, "Could not restart the proxy.");
 }
 

@@ -340,11 +340,7 @@ fn default_file_parses() {
     assert_eq!(env(&f, "TZ"), "Europe/Vienna");
     assert_eq!(
         binds(&root),
-        [
-            project(&f, false),
-            sandbox_dir(&f),
-            git_dir(&f)
-        ]
+        [project(&f, false), sandbox_dir(&f), git_dir(&f)]
     );
 }
 
@@ -408,10 +404,7 @@ fn read_only_workspace_has_no_git_mounts() {
         &f.read_conf()
             .replace("workspace = \"rw\"", "workspace = \"ro\""),
     );
-    assert_eq!(
-        binds(&generate_parsed(&f)),
-        [project(&f, true)]
-    );
+    assert_eq!(binds(&generate_parsed(&f)), [project(&f, true)]);
 }
 
 #[test]
@@ -559,11 +552,7 @@ fn an_empty_sandbox_toml_uses_the_defaults() {
     assert!(!has(&desktop, &["environment", "CUSTOM_USER"]));
     assert_eq!(
         binds(&root),
-        [
-            project(&f, false),
-            sandbox_dir(&f),
-            git_dir(&f)
-        ]
+        [project(&f, false), sandbox_dir(&f), git_dir(&f)]
     );
 }
 
