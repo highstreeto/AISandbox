@@ -60,7 +60,9 @@
 # repo.maven.apache.org
 # repo1.maven.org
 
-# --- Rust crates -------------------------------------------------------------
+# --- Rust (rustup + crates) --------------------------------------------------
+# sh.rustup.rs                 # rustup installer
+# static.rust-lang.org         # toolchain install, rustup update
 # index.crates.io
 # static.crates.io
 

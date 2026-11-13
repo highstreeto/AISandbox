@@ -121,6 +121,7 @@ fn the_engine_is_written_on_the_first_command() {
             "tools/dotnet.sh",
             "tools/jetbrains.sh",
             "tools/node.sh",
+            "tools/rust.sh",
             "tools/vscode.sh"
         ]
     );
@@ -386,7 +387,7 @@ fn the_known_tools_come_from_the_embedded_dockerfile() {
     assert_exit(&r, 1);
     assert_output(
         &r,
-        "unknown tool tools.nope (known: apt, claude, claude_code, dotnet, node, bun, vscode, jetbrains).",
+        "unknown tool tools.nope (known: apt, claude, claude_code, dotnet, node, bun, rust, vscode, jetbrains).",
     );
 }
 

@@ -329,7 +329,7 @@ fn allow_rejects_an_invalid_host() {
 #[case("project = 1\n", "sandbox.toml: project must be a table (got 1).")]
 #[case(
     "[tools]\nnodejs = 24\n",
-    "sandbox.toml: unknown tool tools.nodejs (known: apt, claude, claude_code, dotnet, node, bun, vscode, jetbrains)."
+    "sandbox.toml: unknown tool tools.nodejs (known: apt, claude, claude_code, dotnet, node, bun, rust, vscode, jetbrains)."
 )]
 #[case(
     "[tools]\ndotnet = 10.0\n",

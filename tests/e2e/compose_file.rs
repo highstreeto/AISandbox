@@ -377,12 +377,22 @@ fn shipped_sandbox_toml_renders_all_tools() {
             "INSTALL_DOTNET",
             "INSTALL_NODE",
             "INSTALL_BUN",
+            "INSTALL_RUST",
             "INSTALL_VSCODE",
             "INSTALL_JETBRAINS",
             "INSTALL_APT"
         ]
     );
     assert_eq!(str_(args, &["INSTALL_APT"]), "");
+}
+
+#[test]
+fn rust_toolchains_become_one_build_arg() {
+    let f = Fixture::new();
+    f.write_conf("[tools]\nrust = [\"stable\", \"nightly\"]\n");
+    let root = generate_parsed(&f);
+    let args = at(&root, &["services", "desktop", "build", "args"]);
+    assert_eq!(str_(args, &["INSTALL_RUST"]), "stable nightly");
 }
 
 // --- [project] -----------------------------------------------------

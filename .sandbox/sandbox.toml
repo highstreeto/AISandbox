@@ -8,27 +8,28 @@
 
 [project]
 # name = "myproject"        # container group name (default: project folder name)
-workspace = "ro"            # "rw" | "ro"   access to the project folder
-protect_git = true          # if .git/ should be readonly
+workspace = "ro"   # "rw" | "ro"   access to the project folder
+protect_git = true # if .git/ should be readonly
 # ui_port = 3001            # fixed localhost port (default: random free port)
 
 # Tools baked into the image. true = default version, false = don't install,
 # "x" = a version, [..] = a list. Run "sandbox rebuild" after changing them.
 [tools]
-claude      = true          # Claude Desktop app (beta on Linux)
-claude_code = false         # Claude Code CLI: true | "latest"
-dotnet      = false         # .NET SDK channel(s), e.g. ["10.0", "8.0"]
-node        = false         # Node.js major version, e.g. 24 (true = 24)
-bun         = false
-vscode      = false
-jetbrains   = false         # e.g. "rider" or ["toolbox", "rider", "idea"]
-                            #   toolbox rider idea pycharm webstorm clion goland
-                            #   rustrover datagrip phpstorm rubymine
-apt         = []            # extra Ubuntu packages, e.g. ["build-essential", "python3-pip"]
+claude = true       # Claude Desktop app (beta on Linux)
+claude_code = false # Claude Code CLI: true | "latest"
+dotnet = false      # .NET SDK channel(s), e.g. ["10.0", "8.0"]
+node = false        # Node.js major version, e.g. 24 (true = 24)
+bun = false
+rust = true
+vscode = false
+jetbrains = false   # e.g. "rider" or ["toolbox", "rider", "idea"]
+#   toolbox rider idea pycharm webstorm clion goland
+#   rustrover datagrip phpstorm rubymine
+apt = [] # extra Ubuntu packages, e.g. ["build-essential", "python3-pip"]
 
 [desktop]
-title  = "AI Sandbox"
-sudo   = false               # if sudo is enabled in the sandbox
+title = "AI Sandbox"
+sudo = false         # if sudo is enabled in the sandbox
 memory = "8g"
 # cpus = 4                  # must not exceed the host's core count
 # timezone = "Europe/Vienna"            # default: taken from the host

@@ -8,7 +8,8 @@ FROM lscr.io/linuxserver/webtop:${WEBTOP_TAG}
 ENV DEBIAN_FRONTEND=noninteractive \
     DOTNET_ROOT=/usr/share/dotnet \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 \
-    DOTNET_NOLOGO=1
+    DOTNET_NOLOGO=1 \
+    RUSTUP_HOME=/usr/local/rustup
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -37,6 +38,8 @@ ARG INSTALL_NODE=false
 RUN sandbox-install node "${INSTALL_NODE}"
 ARG INSTALL_BUN=false
 RUN sandbox-install bun "${INSTALL_BUN}"
+ARG INSTALL_RUST=false
+RUN sandbox-install rust "${INSTALL_RUST}"
 ARG INSTALL_VSCODE=false
 RUN sandbox-install vscode "${INSTALL_VSCODE}"
 ARG INSTALL_JETBRAINS=false

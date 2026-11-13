@@ -86,6 +86,7 @@ claude_code = false         # Claude Code CLI
 dotnet      = "10.0"        # ["10.0", "8.0"] for both
 node        = false         # 24
 bun         = true
+rust        = false         # "1.88", ["stable", "nightly"], ...
 vscode      = true
 jetbrains   = false         # "rider", ["toolbox", "rider"], ...
 apt         = []            # extra Ubuntu packages
@@ -114,6 +115,8 @@ a text or number is a version, and a list is several. Write versions with dots a
 Each one runs `sandbox-install <tool> <value>` while the image is built. Inside the sandbox you can run the same command,
 e.g. `sandbox-install jetbrains rider`. With no arguments it lists the tools and the hosts each one needs.
 Runtime installs are lost on rebuild, so put permanent tools in `sandbox.toml`.
+`rust` installs rustup with rustfmt, clippy, rust-src and rust-analyzer; the toolchains live in `/usr/local/rustup`, while
+`~/.cargo` (crate registry cache, `cargo install`ed tools) persists in the home volume.
 
 **Checked.** Unknown sections, keys and tools are errors that list the valid names, and so are wrong types and invalid
 values (`workspace = "rx"`, a share folder that doesn't exist, broken TOML with its line and column).
@@ -171,7 +174,7 @@ One host per line, with wildcards like `*.example.com`. Everything else is block
 | `./sandbox deny api.nuget.org` | Comment out and reload |
 | `./sandbox allowlist -a` | Allowed hosts by group, plus the commented-out ones ready to enable |
 
-The file includes ready-made, commented-out groups for NuGet, npm, pip, Gradle/Maven, apt, VS Code marketplace,
+The file includes ready-made, commented-out groups for NuGet, npm, pip, Gradle/Maven, Rust (rustup + crates), apt, VS Code marketplace,
 JetBrains, and a local LLM on the host (`host.docker.internal`).
 
 ## Isolation

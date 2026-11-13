@@ -20,6 +20,7 @@ claude_code = false         # Claude Code CLI: true | "latest"
 dotnet      = false         # .NET SDK channel(s), e.g. ["10.0", "8.0"]
 node        = false         # Node.js major version, e.g. 24 (true = 24)
 bun         = false
+rust        = false         # Rust via rustup: true = stable, "1.88", ["stable", "nightly"]
 vscode      = false
 jetbrains   = false         # e.g. "rider" or ["toolbox", "rider", "idea"]
                             #   toolbox rider idea pycharm webstorm clion goland
