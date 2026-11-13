@@ -20,11 +20,11 @@
 
 # --- Claude Desktop / Claude Code (required) --------------------------------
 api.anthropic.com
+auth.anthropic.com
+s-cdn.anthropic.com
 claude.ai
 claude.com
 platform.claude.com
-auth.anthropic.com
-s-cdn.anthropic.com
 assets-proxy.anthropic.com
 *.claudeusercontent.com
 *.hcaptcha.com
@@ -34,8 +34,8 @@ mcp-proxy.anthropic.com      # claude.ai MCP connectors
 code.claude.com              # built-in docs lookups
 
 # --- GitHub (read-only API + raw files) --------------------------------------
-api.github.com
-raw.githubusercontent.com
+# api.github.com
+# raw.githubusercontent.com
 
 # --- Git over HTTPS -----------------------------------------------------------
 # github.com
@@ -61,6 +61,10 @@ globalcdn.nuget.org
 # repo.maven.apache.org
 # repo1.maven.org
 
+# --- Rust crates -------------------------------------------------------------
+index.crates.io
+static.crates.io
+
 # --- Ubuntu packages (sudo apt install ... inside the sandbox) ---------------
 # archive.ubuntu.com
 # security.ubuntu.com
@@ -85,5 +89,3 @@ globalcdn.nuget.org
 # Make the server listen on 0.0.0.0 on the host, then use e.g.
 #   http://host.docker.internal:11434   from inside the sandbox.
 # host.docker.internal
-index.crates.io
-static.crates.io
