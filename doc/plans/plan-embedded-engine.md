@@ -336,6 +336,6 @@ Differences from the plan:
 - **Init templates**: `sandbox.toml` got the new header (`sandbox up` / `rebuild` / `info`, link to the GitHub README).
   `allowlist.txt` header fixed after review (`sandbox reload` etc. instead of `.sandbox/sandbox …`). The repo's own
   `.sandbox/allowlist.txt` still has the old header (read-only here; edit on the host if wanted).
-- Launchers `sandbox` and `sandbox.cmd`: comment now points to the root `README.md`.
+- Launchers `sandbox` and `sandbox.ps1`: comment now points to the root `README.md`.
 - `plan-console-project.md` and `plan-sandbox-toml.md` were not edited (they describe earlier states).
 - Not done: step 7; applying `apply-on-host.ps1`; `sandbox engine diff` and project tools (out of scope, see *Later*).

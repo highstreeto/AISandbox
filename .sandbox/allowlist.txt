@@ -12,7 +12,7 @@
 #  Quick add/remove:     .sandbox/sandbox allow example.com
 #                        .sandbox/sandbox deny  example.com
 #  See what was blocked: .sandbox/sandbox blocked
-#  (Windows: .sandbox\sandbox.cmd <command>)
+#  (Windows: .sandbox\sandbox.ps1 <command>)
 #  Show entries:         .sandbox/sandbox allowlist -a
 #
 #  This file is read-only inside the sandbox: the agent can't change it.

@@ -39,7 +39,7 @@ impl Ui {
     /// How to call this app again, for hints in messages: the launcher in the repository root.
     pub fn self_name(&self) -> &'static str {
         if cfg!(windows) {
-            "sandbox.cmd"
+            "sandbox.ps1"
         } else {
             "./sandbox"
         }

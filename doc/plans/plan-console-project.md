@@ -26,7 +26,7 @@ Behaviour stays the same. Every existing test must pass unchanged in what it ass
 AiSandbox.slnx                       new: src + tests
 Directory.Build.props                new: net10.0, Nullable, ImplicitUsings, warnings
 Directory.Packages.props             new: central package versions (app + tests)
-sandbox, sandbox.cmd                 launchers: dotnet run --project src/AiSandbox
+sandbox, sandbox.ps1                 launchers: dotnet run --project src/AiSandbox
 src/AiSandbox/
   AiSandbox.csproj
   Program.cs                         Main: help rewrite, `claude` passthrough, parse + invoke
@@ -176,7 +176,7 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 SANDBOX_DIR="$root/.sandbox" exec dotnet run --project "$root/src/AiSandbox" --no-launch-profile -v q -- "$@"
 ```
 
-`sandbox.cmd`:
+`sandbox.ps1`:
 
 ```bat
 @echo off
@@ -186,7 +186,7 @@ dotnet run --project "%~dp0src\AiSandbox" --no-launch-profile -v q -- %*
 ```
 
 Both now resolve paths from their own location instead of the current directory (today's launchers only work from
-the repo root). `Ui.Self` (the hint text) becomes `./sandbox` / `sandbox.cmd`, matching where the launchers are.
+the repo root). `Ui.Self` (the hint text) becomes `./sandbox` / `sandbox.ps1`, matching where the launchers are.
 
 **Consequence:** copying only `.sandbox/` into another project no longer brings the app with it. Until the tool
 exists, other projects run it with `dotnet run --project <aisandbox>/src/AiSandbox -- up` from inside the project
@@ -288,7 +288,7 @@ suite takes about as long as before (~55 s).
 ## Docs
 
 - `.sandbox/README.md`: requirements (.NET 10 SDK, no 10.0.400 minimum), the "Start / stop" block (`./sandbox up`,
-  `sandbox.cmd up`), the paragraph about the file-based app, troubleshooting entry about build errors, and the note
+  `sandbox.ps1 up`), the paragraph about the file-based app, troubleshooting entry about build errors, and the note
   on using it from another project (see *Launchers*).
 - `tests/README.md`: as above.
 - Root `README.md` doesn't exist; not adding one in this change.
@@ -306,7 +306,7 @@ suite takes about as long as before (~55 s).
 6. `ImmutableArray` and the named records. Suite green after each of 5 and 6.
 7. Docs, the template comment, `.idea`/`.vscode` paths if they point at `.sandbox/*.cs`.
 8. Smoke test against real Docker: `./sandbox up`, `status`, `allow`, `down` from the repo root and from a subfolder,
-   on Linux and Windows (`sandbox.cmd`).
+   on Linux and Windows (`sandbox.ps1`).
 
 ## Out of scope / later
 
@@ -333,5 +333,5 @@ suite takes about as long as before (~55 s).
 - Analyzers (`latest-recommended`, warnings as errors): CA1303, CA1515, CA1031, CA1305, CA1307, CA1310, CA1311, CA1707
   are off everywhere (see `.editorconfig` for why); CA1711, CA1716, CA1822, CA1861 are off for test code only.
 - `NativeUser` catches only `DllNotFoundException` / `EntryPointNotFoundException` instead of every exception.
-- `.gitattributes` in the root also covers `*.cmd` (CRLF), since `sandbox.cmd` now lives there.
+- `.gitattributes` in the root also covers `*.cmd` (CRLF), since `sandbox.ps1` now lives there.
 

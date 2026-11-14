@@ -318,7 +318,7 @@ is pure, a unit test).
     `Open <url> in your browser.`
 16. **User ids**: `rustix` `getuid`/`getgid`; root or Windows → `1000`/`1000`. **Time zone**: `$TZ` if not blank, else
     `iana_time_zone::get_timezone()`, else none (the `TZ:` line is left out).
-17. **Hints** name the launcher: `./sandbox`, or `sandbox.cmd` on Windows.
+17. **Hints** name the launcher: `./sandbox`, or `sandbox.ps1` on Windows.
 
 ## Intentional differences
 
@@ -374,7 +374,7 @@ fetch.
    `blocked`, a failing `stop` (red panel), `reset-home` (question). Compare side by side with the .NET app and fix
    what looks off. Record what was looked at in *As built*.
 7. **Launchers and docs.** `sandbox`: `SANDBOX_DIR="$root/.sandbox" exec cargo run --quiet --locked --manifest-path
-   "$root/Cargo.toml" --bin sandbox -- "$@"`; `sandbox.cmd` the same with `%~dp0`. `--manifest-path` does not change
+   "$root/Cargo.toml" --bin sandbox -- "$@"`; `sandbox.ps1` the same with `%~dp0`. `--manifest-path` does not change
    the current directory, which `init` and the upward search depend on. README: requirements (Rust toolchain instead
    of the .NET SDK), "How it's used" (MiniJinja, `compose.yml.j2`), the `dotnet` troubleshooting line, the fork hint
    (`resources/`), running from another project (`cargo run --manifest-path …` or `cargo install --path . --bin

@@ -32,7 +32,7 @@ The launchers are in the repository root. They work from any directory and don't
 
 ```bash
 ./sandbox up                 # Linux / macOS / WSL / Git Bash (sh)
-sandbox.cmd up               # Windows (cmd or PowerShell)
+sandbox.ps1 up               # Windows (cmd or PowerShell)
 ./sandbox help up            # help for one command (or: up --help)
 ```
 
