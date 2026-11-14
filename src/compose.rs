@@ -25,6 +25,17 @@ struct Model {
     desktop: Desktop,
     env: Vec<EnvVar>,
     mounts: Vec<MountModel>,
+    /// The local LLM (`[llm]`); `None` = no `ollama` and `llm` services.
+    llm: Option<Llm>,
+}
+
+#[derive(Debug, Serialize)]
+struct Llm {
+    model: String,
+    context: u32,
+    keep_alive: Option<String>,
+    /// `nvidia`, `amd` or `none`.
+    gpu: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -77,7 +88,7 @@ pub struct MountModel {
     pub read_only: bool,
 }
 
-/// Writes `.state/.gitignore`, syncs the engine into `.state/desktop` and `.state/proxy`, and writes
+/// Writes `.state/.gitignore`, syncs the engine into `.state/desktop`, `.state/proxy` and `.state/llm`, and writes
 /// `.state/compose.yml`, the only file docker compose runs with: the embedded template rendered with the settings
 /// from `sandbox.toml` and this machine's facts (user ids, time zone, mounts, UI port).
 ///
@@ -197,6 +208,12 @@ fn model(project: &Project) -> Model {
             })
             .collect(),
         mounts: mounts(project),
+        llm: s.llm.as_ref().map(|l| Llm {
+            model: l.model.clone(),
+            context: l.context,
+            keep_alive: l.keep_alive.clone(),
+            gpu: l.gpu.name().to_string(),
+        }),
     }
 }
 
@@ -290,6 +307,7 @@ mod tests {
                 target: "/b".into(),
                 read_only: true,
             }],
+            llm: None,
         }
     }
 

@@ -53,7 +53,7 @@ actually ready and opens it in your browser. Accept the self-signed certificate.
 
 | Command | |
 |---|---|
-| `up` / `stop` / `restart` / `down` | Start · stop (all kept) · restart · remove containers (home + project kept) |
+| `up` / `stop` / `restart` / `down` | Start · stop (all kept) · restart · remove containers (home + project kept). `up --no-pull` skips model downloads |
 | `status` / `open` | Status + URL · open the desktop |
 | `shell` / `claude` | Bash / Claude Code CLI inside the sandbox, in the project folder |
 | `rebuild` / `update` | After changing tools · newest versions of everything |
@@ -61,6 +61,7 @@ actually ready and opens it in your browser. Accept the self-signed certificate.
 | `init [folder]` | Create `.sandbox/` (`sandbox.toml`, `allowlist.txt`, `.gitignore`) in a project folder |
 | `info` | Project identity, mount path, engine version, settings, tools and shared folders as read from `sandbox.toml` |
 | `logs [service]` | Follow logs · `--tail <n>`, `--no-follow` |
+| `llm status` / `pull` / `rm` / `usage` | The local LLM: [see below](#local-llm) |
 
 Add `-v` / `--verbose` to any command to see the `docker` commands it runs.
 
@@ -137,10 +138,11 @@ the address; it does not fall back to the default browser. On Windows a name wit
 `up --no-browser` always wins. `sandbox info` shows the setting and the file it comes from.
 
 **Personal settings: `sandbox.local.toml`.** Your browser is your own choice, so `[host]` can also be set in
-`.sandbox/sandbox.local.toml`, next to `sandbox.toml`. It is optional and **not committed** (`init` creates a
-`.sandbox/.gitignore` that lists it; the app warns if it exists but isn't ignored). Only `[host]` is allowed in it
-(`sandbox.local.toml: only [host] can be set here (found 'tools').`): everything that shapes the sandbox stays in the
-committed file. A key set in it overrides the same key in `sandbox.toml`.
+`.sandbox/sandbox.local.toml`, next to `sandbox.toml`, and so can your machine's part of `[llm]` (the GPU, a smaller
+model). It is optional and **not committed** (`init` creates a `.sandbox/.gitignore` that lists it; the app warns if it
+exists but isn't ignored). Only `[host]` and `[llm]` are allowed in it
+(`sandbox.local.toml: only [host] and [llm] can be set here (found 'tools').`): everything that shapes the sandbox
+stays in the committed file. A key set in it overrides the same key in `sandbox.toml`.
 
 ```toml
 # .sandbox/sandbox.local.toml
@@ -150,7 +152,7 @@ browser = ["chromium", "--incognito"]
 
 **Checked.** Unknown sections, keys and tools are errors that list the valid names, and so are wrong types and invalid
 values (`workspace = "rx"`, a share folder that doesn't exist, broken TOML with its line and column).
-Environment variables the sandbox sets itself (`HTTP_PROXY`, `NO_PROXY`, `PUID`, `PGID`, `SANDBOX_WORKDIR`) can't be
+Environment variables the sandbox sets itself (`HTTP_PROXY`, `NO_PROXY`, `PUID`, `PGID`, `SANDBOX_WORKDIR`, `SANDBOX_LLM_URL`, `SANDBOX_LLM_MODEL`, `SANDBOX_LLM_CONTEXT`, `OLLAMA_HOST`) can't be
 set in `[env]`; `TZ`, `TITLE`, `SANDBOX_SUDO`, `CUSTOM_USER`/`PASSWORD` are set through `[desktop]` instead.
 
 **How it's used.** The app renders its embedded `compose.yml.j2` (a [MiniJinja](https://github.com/mitsuhiko/minijinja)
@@ -166,20 +168,21 @@ written by the template itself, so nothing in `sandbox.toml` can change them.
   sandbox.toml          yours: settings                      (commit)
   allowlist.txt         yours: network allowlist             (commit)
   .gitignore            keeps sandbox.local.toml out of git  (commit)
-  sandbox.local.toml    yours, optional: [host] only         (not committed)
+  sandbox.local.toml    yours, optional: [host], [llm]       (not committed)
   .state/               generated, ignores itself (its own .gitignore holds "*")
     id                  stable project id
     .manifest           what the app wrote last time: file hashes, engine hash, app version
     compose.yml         the one file docker compose runs with
     desktop/            build folder of the desktop image, exactly as used
     proxy/              build folder of the proxy/gateway image
+    llm/                build folder of the local LLM gateway (nginx)
 ```
 
 **The engine files are generated.** The Dockerfiles, the tool scripts, the startup script and the proxy config are
-embedded in the app and written to `.state/desktop/` and `.state/proxy/` before every command that uses Docker. They
+embedded in the app and written to `.state/desktop/`, `.state/proxy/` and `.state/llm/` before every command that uses Docker. They
 are there so you can see what is built; they can't be edited. A file you change by hand is restored on the next
 command, with a warning (`.state/desktop/Dockerfile was edited by hand and has been restored.`). Files an older app
-version left behind in these two folders are removed; nothing else in `.state/` or outside it is touched. Every file
+version left behind in these folders are removed; nothing else in `.state/` or outside it is touched. Every file
 that allows comments starts with `Generated by sandbox <version> — changes are overwritten. Settings: sandbox.toml.`
 
 To change a sandbox, use the keys in `sandbox.toml`: the built-in `[tools]`, `apt = [...]` for extra Ubuntu packages,
@@ -207,7 +210,98 @@ One host per line, with wildcards like `*.example.com`. Everything else is block
 | `./sandbox allowlist -a` | Allowed hosts by group, plus the commented-out ones ready to enable |
 
 The file includes ready-made, commented-out groups for NuGet, npm, pip, Gradle/Maven, Rust (rustup + crates), apt, VS Code marketplace,
-JetBrains, and a local LLM on the host (`host.docker.internal`).
+JetBrains, and a local LLM on the host (`host.docker.internal`; the built-in [local LLM](#local-llm) needs no entry).
+
+## Local LLM
+
+A model that runs on your machine, without installing anything on it except Docker. Each project that turns it on gets
+its own stack next to the desktop: **Ollama** (with the GPU) and a small **nginx gateway** in front of it. The models are
+kept in one Docker volume for the whole machine, so a model is downloaded once however many projects use it.
+
+```toml
+# .sandbox/sandbox.toml
+[llm]
+model = "qwen3.6:27b"       # Ollama tag; setting a model (or enabled = true) turns the local LLM on
+# enabled = true            # on with the built-in default model (qwen3.6:27b)
+# models = ["gpt-oss:20b"]  # more models to download
+# context = 65536           # context length in tokens (2048..1048576), the default
+# keep_alive = "30m"        # how long a model stays in VRAM after the last request ("-1" = always)
+```
+
+```toml
+# .sandbox/sandbox.local.toml  (this machine only)
+[llm]
+# enabled = false           # off here even if the project turns it on (or true: on here only)
+# model = "gpt-oss:20b"     # a smaller model for this machine
+# context = 32768
+# gpu = "nvidia"            # "nvidia" (default) | "amd" (Linux: ROCm, /dev/kfd + /dev/dri) | "none" (CPU, slow)
+```
+
+`sandbox up` starts the stack, creates the volume `sandbox-llm-models` and downloads the models that are missing
+(Ollama's progress is shown; `up --no-pull` skips it). `down`, `reset-home`, `down -v` and engine updates never touch
+the volume. Use `sandbox llm rm <model>` to delete a model; it asks first, because every project shares the volume.
+
+| Command | |
+|---|---|
+| `sandbox llm status` | Model, source file, GPU, endpoint, installed models (`ollama list`) and what is loaded (`ollama ps`: the GPU/CPU split) |
+| `sandbox llm pull [model]` | Download the project's models, or one model |
+| `sandbox llm rm <model>` | Delete a model from the shared volume (`--yes` skips the question) |
+| `sandbox llm usage` | Requests, errors, input/output tokens and output tokens per second per day and model · `--days N`, `--json`, `--clear` |
+| `sandbox info` | An "LLM" row: model, the file it comes from, GPU, endpoint (or `off`) |
+
+**In the sandbox.** The endpoint is `http://llm:11434`, set as `SANDBOX_LLM_URL` (and `OLLAMA_HOST`) with the model in
+`SANDBOX_LLM_MODEL` and its context length in `SANDBOX_LLM_CONTEXT`. The host name `llm` bypasses the proxy; nothing else about the allowlist changes. Run
+`sandbox-llm` there for the settings to paste into your tools:
+
+- **Claude Code**: `sandbox-llm claude` starts it against the local model (Anthropic API, `/v1/messages`). It sets the
+  base URL, a dummy token and the model for the main, small/fast (haiku) and sub-agent roles, so that nothing asks for a
+  cloud model. It also sets `CLAUDE_CODE_MAX_CONTEXT_TOKENS` to `llm.context`: Claude Code doesn't know local models
+  and would otherwise warn "Model ... isn't recognized · context assumed to be 200k tokens" and compact too late. A plain `claude` keeps your cloud login; both can run side by side.
+- **OpenCode**: an OpenAI-compatible provider with `baseURL` `http://llm:11434/v1`; `sandbox-llm` prints the JSON.
+  OpenCode can use the cloud models and this one side by side.
+- **VS Code, GitHub Copilot Chat**: bring-your-own-model with the Ollama endpoint `http://llm:11434`.
+- **Continue and others**: Ollama provider with `apiBase` `http://llm:11434`, or any OpenAI-compatible client with base
+  URL `http://llm:11434/v1` and any API key. `sandbox-llm env` prints `export` lines for scripts.
+
+`OPENAI_BASE_URL` and `ANTHROPIC_BASE_URL` are deliberately **not** set for the whole desktop: that would send your cloud
+logins to the local model.
+
+**What the desktop can reach.** Only the gateway, which passes inference and read-only requests: `/`,
+`/api/version|tags|show|ps|chat|generate|embed|embeddings`, `/v1/chat/completions|completions|embeddings|models`,
+`/v1/messages` and `/v1/messages/count_tokens`. Everything else (`/api/pull`, `push`, `create`, `delete`, `copy`,
+`/api/blobs`) gets `403` with a hint to use `sandbox llm pull` on the host. Otherwise the agent could have Ollama fetch
+from hosts that the allowlist blocks. Ollama itself is on an internal network and has its own route to the model
+registry only for the downloads that `sandbox` starts.
+
+**Usage.** The gateway writes one JSON line per request (time, endpoint, status, duration, model, input/output tokens)
+to a volume of the project; `sandbox llm usage` adds it up. Tokens come from the answer: Ollama's own API and the
+OpenAI API without streaming always report them, the Anthropic API too. A streamed OpenAI answer reports them only if
+the client asks for `stream_options.include_usage`; otherwise the counts are empty.
+
+**Windows.** Docker Desktop with the WSL2 backend, a current NVIDIA driver for Windows (it provides the GPU inside WSL2;
+don't install a Linux driver in the distribution) and no other setup. **Linux:** the NVIDIA driver and the NVIDIA Container
+Toolkit (`nvidia-ctk runtime configure --runtime=docker`). If the GPU can't be used, `up` says so and points at
+`gpu = "none"`. On Docker Desktop the models live in the WSL2 virtual disk, which grows with them and does not shrink
+by itself after `llm rm`.
+
+**Models for a 24 GB card (RTX 4090).** The default is a dense 27B model with the best tool-call reliability of the group
+and room for a 64K context.
+
+| Model (Ollama tag) | Size (Q4) | Notes |
+|---|---|---|
+| `qwen3.6:27b` (default) | ~17 GB | Dense, ~30–40 tokens/s, room for 64K context |
+| `qwen3.6:35b-a3b` | ~22 GB | Mixture of experts, much faster, little VRAM left for context |
+| `gpt-oss:20b` | ~14 GB | Clean tool calls, adjustable reasoning, also fits 16 GB cards |
+| `devstral-small-2` | ~15 GB | Mistral's agentic coding model |
+| `qwen3-coder:30b` | ~19 GB | Older, widely supported coding model |
+
+Sizes and speeds are rough. Agent tools need a model with the *tools* capability: check with `ollama show <tag>` in the
+Ollama container (`docker compose exec ollama ollama show <tag>`) before relying on a tag.
+
+**Not verified yet.** Running on a GPU host: `ollama/ollama:0.40.16` and `nginx/nginx-unprivileged:1.31.8-alpine`
+(in `compose.yml.j2` and `resources/llm/Dockerfile`, the gateway with the QuickJS engine) with `qwen3.6:27b` and Claude
+Code. Not verified: the exact tags `qwen3.6:35b-a3b`, `devstral-small-2` and `qwen3-coder:30b`; the VS Code setting name `github.copilot.chat.byok.ollamaEndpoint` (Copilot's BYOK settings are still changing) and the
+OpenCode provider JSON. Anthropic API support needs Ollama 0.14 or newer.
 
 ## Isolation
 
@@ -241,6 +335,6 @@ Still your responsibility: files the agent writes in the project, such as build 
 - **"Another project already uses the container group"** → two projects have the same folder name. Set `name` under `[project]`.
 - **GUI apps crash** → under `[desktop]`, set `security_opt = ["seccomp=unconfined"]`.
 - **GPU (Intel/AMD, Linux)** → under `[desktop]`, set `devices = ["/dev/dri:/dev/dri"]`.
-- **"... was edited by hand and has been restored"** → the files in `.state/desktop/` and `.state/proxy/` are generated. Change `sandbox.toml` instead.
+- **"... was edited by hand and has been restored"** → the files in `.state/desktop/`, `.state/proxy/` and `.state/llm/` are generated. Change `sandbox.toml` instead.
 - **".sandbox/engine/ is no longer used"** → see "Migrating from the old layout" above.
 - **"sandbox.yml is no longer read"** → the settings moved to `sandbox.toml`; the message shows where each old key goes.

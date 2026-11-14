@@ -1,4 +1,4 @@
-//! The engine the app writes into .state/desktop and .state/proxy before each docker command: files, headers,
+//! The engine the app writes into .state/desktop, .state/proxy and .state/llm before each docker command: files, headers,
 //! manifest, hand edits, leftovers, the old .sandbox/engine layout.
 
 use crate::support::*;
@@ -9,9 +9,10 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::time::{Duration, SystemTime};
 
-const EXPECTED_FILES: [&str; 11] = [
+const EXPECTED_FILES: [&str; 15] = [
     "desktop/Dockerfile",
     "desktop/bin/sandbox-install",
+    "desktop/bin/sandbox-llm",
     "desktop/tools/_lib.sh",
     "desktop/tools/node.sh",
     "desktop/tools/claude-code.sh",
@@ -21,6 +22,9 @@ const EXPECTED_FILES: [&str; 11] = [
     "desktop/root/etc/xdg/kioslaverc",
     "proxy/Dockerfile",
     "proxy/tinyproxy.conf",
+    "llm/Dockerfile",
+    "llm/nginx.conf",
+    "llm/usage.js",
 ];
 
 fn state_path(f: &Fixture, rel: &str) -> Utf8PathBuf {
@@ -40,7 +44,7 @@ fn sync(f: &Fixture) -> RunResult {
     r
 }
 
-/// Every file under .state/desktop and .state/proxy, by path below .state with forward slashes.
+/// Every file under .state/desktop, .state/proxy and .state/llm, by path below .state with forward slashes.
 fn engine_files_on_disk(f: &Fixture) -> Vec<String> {
     fn walk(dir: &Utf8PathBuf, state: &Utf8PathBuf, out: &mut Vec<String>) {
         let Ok(entries) = fs::read_dir(dir) else {
@@ -56,7 +60,7 @@ fn engine_files_on_disk(f: &Fixture) -> Vec<String> {
         }
     }
     let mut out = Vec::new();
-    for d in [f.desktop_context(), f.proxy_context()] {
+    for d in [f.desktop_context(), f.proxy_context(), f.llm_context()] {
         walk(&d, &f.state_dir(), &mut out);
     }
     out.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
@@ -98,12 +102,12 @@ fn the_engine_is_written_on_the_first_command() {
             .any(|x| x.ends_with(".sbn") || x.ends_with(".j2"))
     );
     for x in &files {
-        let prefix = if x.starts_with("desktop/") {
-            "desktop/"
-        } else {
-            "proxy/"
-        };
-        assert!(x.starts_with(prefix), "{x}");
+        assert!(
+            ["desktop/", "proxy/", "llm/"]
+                .iter()
+                .any(|prefix| x.starts_with(prefix)),
+            "{x}"
+        );
     }
     let tools = Regex::new(r"^desktop/tools/[a-z-]+\.sh$").unwrap();
     let got: Vec<&str> = files
@@ -285,6 +289,8 @@ fn dockerfiles_and_scripts_start_with_the_header() {
         "desktop/Dockerfile",
         "proxy/Dockerfile",
         "proxy/tinyproxy.conf",
+        "llm/Dockerfile",
+        "llm/nginx.conf",
         "desktop/tools/_lib.sh",
     ] {
         assert_eq!(header(&f), first_line(&state_path(&f, rel)), "{rel}");
@@ -299,6 +305,7 @@ fn dockerfiles_and_scripts_start_with_the_header() {
 /// The header comes after a shebang line, never before it.
 #[rstest]
 #[case("desktop/bin/sandbox-install", "#!/usr/bin/env bash")]
+#[case("desktop/bin/sandbox-llm", "#!/usr/bin/env bash")]
 #[case(
     "desktop/root/custom-cont-init.d/50-sandbox",
     "#!/usr/bin/with-contenv bash"
@@ -330,6 +337,7 @@ fn scripts_with_a_shebang_keep_it_on_the_first_line() {
             assert!(
                 ![
                     "desktop/bin/sandbox-install",
+                    "desktop/bin/sandbox-llm",
                     "desktop/root/custom-cont-init.d/50-sandbox"
                 ]
                 .contains(&rel.as_str()),
@@ -435,4 +443,48 @@ fn info_shows_the_engine_row() {
         &r,
         ".sandbox/.state/desktop, proxy (rewritten before each command)",
     );
+}
+
+#[test]
+fn the_llm_gateway_is_part_of_the_engine_even_when_the_llm_is_off() {
+    let f = Fixture::new();
+    sync(&f);
+    assert!(
+        !fs::read_to_string(f.generated_file())
+            .unwrap()
+            .contains("ollama")
+    );
+    let nginx = fs::read_to_string(state_path(&f, "llm/nginx.conf")).unwrap();
+    assert_eq!(first_line(&state_path(&f, "llm/nginx.conf")), header(&f));
+    // only inference and read-only endpoints are passed on
+    for blocked in ["pull", "push", "create", "delete", "copy", "blobs"] {
+        assert!(!nginx.contains(&format!("api/{blocked}")), "{blocked}");
+    }
+    assert!(nginx.contains("return 403"));
+    assert!(nginx.contains("js_body_filter usage.filter"));
+    let docker = fs::read_to_string(state_path(&f, "llm/Dockerfile")).unwrap();
+    assert!(docker.contains("FROM nginx/nginx-unprivileged:"));
+    assert!(docker.contains("COPY --chmod=0644 usage.js /etc/nginx/usage.js"));
+}
+
+#[test]
+fn llm_files_are_restored_and_stale_ones_removed() {
+    let f = Fixture::new();
+    sync(&f);
+    let path = state_path(&f, "llm/nginx.conf");
+    let original = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        format!("{original}location /api/pull {{ proxy_pass x; }}\n"),
+    )
+    .unwrap();
+    fs::write(state_path(&f, "llm/old.js"), "x").unwrap();
+    let r = f.run(&["status"]);
+    assert_exit(&r, 0);
+    assert_output(
+        &r,
+        ".state/llm/nginx.conf was edited by hand and has been restored.",
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    assert!(!state_path(&f, "llm/old.js").exists());
 }

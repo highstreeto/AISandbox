@@ -46,6 +46,18 @@ memory = "8g"
 # browser = ["chromium", "--incognito"]   # program + arguments; the address is added last
 # browser = ["chrome", "--app={url}"]     # {url} (once) puts the address elsewhere
 
+# A local LLM in its own container (Ollama), without installing anything on this machine
+# but Docker. A model (or enabled = true) turns it on; "sandbox up" downloads missing models
+# once per machine (they are shared by all projects). Inside the sandbox: "sandbox-llm".
+# sandbox.local.toml (not committed) can turn it off here (enabled = false), change the
+# model or context, or set gpu = "nvidia" | "amd" | "none" (CPU).
+[llm]
+# model = "qwen3.6:27b"     # Ollama model tag; this is the default model for a 24 GB GPU
+# enabled = true            # on with the default model
+# models = ["gpt-oss:20b"]  # more models to download
+# context = 65536           # context length in tokens (2048 and up; more needs more VRAM)
+# keep_alive = "30m"        # how long a model stays in VRAM after the last request
+
 # Extra environment variables in the desktop.
 [env]
 # MY_VAR = "value"

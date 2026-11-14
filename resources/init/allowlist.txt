@@ -87,6 +87,9 @@
 # *.jetbrains.com
 
 # --- Local LLM on the host (Ollama, LM Studio, llama.cpp, ...) --------------
+# Built in: [llm] in sandbox.toml runs Ollama in its own container, nothing to
+# install on the host and nothing to allow here. Only for a server you already
+# run on the host:
 # Make the server listen on 0.0.0.0 on the host, then use e.g.
 #   http://host.docker.internal:11434   from inside the sandbox.
 # host.docker.internal

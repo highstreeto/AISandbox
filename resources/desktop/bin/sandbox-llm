@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# sandbox-llm — use the local LLM of this sandbox (the [llm] section of sandbox.toml).
+#
+#   sandbox-llm                 endpoint, model, and settings to paste into your tools
+#   sandbox-llm claude [args]   Claude Code against the local model (plain "claude" stays on your cloud login)
+#   sandbox-llm env             "export" lines for scripts:  eval "$(sandbox-llm env)"
+#
+# The model runs in its own container behind a gateway that only passes inference requests. Models are
+# downloaded on the host: "sandbox llm pull <model>".
+set -euo pipefail
+
+url=${SANDBOX_LLM_URL:-}
+model=${SANDBOX_LLM_MODEL:-}
+context=${SANDBOX_LLM_CONTEXT:-65536}
+
+if [ -z "$url" ]; then
+  echo "The local LLM is off for this sandbox."
+  echo "Turn it on on the host: model = \"qwen3.6:27b\" under [llm] in .sandbox/sandbox.toml, then \"sandbox up\"."
+  exit 1
+fi
+
+# Claude Code talks to the Anthropic API of the gateway. Background calls use the small/fast model and the
+# sub-agents their own: all of them must be the local model, or they would ask the cloud for a model that
+# isn't there. Claude Code doesn't know local models and would assume a 200K window; the real one is the context
+# Ollama runs with (llm.context), so it compacts in time instead of having the prompt cut off.
+claude_env() {
+  export ANTHROPIC_BASE_URL=$url
+  export ANTHROPIC_AUTH_TOKEN=local
+  export ANTHROPIC_API_KEY=
+  export ANTHROPIC_MODEL=$model
+  export ANTHROPIC_DEFAULT_HAIKU_MODEL=$model
+  export ANTHROPIC_DEFAULT_SONNET_MODEL=$model
+  export ANTHROPIC_DEFAULT_OPUS_MODEL=$model
+  export ANTHROPIC_SMALL_FAST_MODEL=$model
+  export CLAUDE_CODE_SUBAGENT_MODEL=$model
+  export CLAUDE_CODE_MAX_CONTEXT_TOKENS=$context
+  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+}
+
+case "${1:-}" in
+  claude)
+    shift
+    command -v claude >/dev/null || { echo "Claude Code CLI not installed: set claude_code under [tools] in sandbox.toml and rebuild."; exit 1; }
+    claude_env
+    exec claude --model "$model" "$@"
+    ;;
+  env)
+    cat <<ENV
+export SANDBOX_LLM_URL='$url'
+export SANDBOX_LLM_MODEL='$model'
+export SANDBOX_LLM_CONTEXT='$context'
+export OLLAMA_HOST='$url'
+export OPENAI_BASE_URL='$url/v1'
+export OPENAI_API_KEY='local'
+export ANTHROPIC_BASE_URL='$url'
+export ANTHROPIC_AUTH_TOKEN='local'
+export ANTHROPIC_API_KEY=''
+export ANTHROPIC_MODEL='$model'
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS='$context'
+ENV
+    exit 0
+    ;;
+  ""|info|help|-h|--help)
+    ;;
+  *)
+    echo "Unknown command '$1'. Use: sandbox-llm [claude [args] | env]"
+    exit 1
+    ;;
+esac
+
+echo "Local LLM"
+echo "  Endpoint   $url"
+echo "  Model      $model"
+if version=$(curl -sf --max-time 5 "$url/api/version" 2>/dev/null); then
+  echo "  Status     reachable (Ollama $(jq -r '.version // "?"' <<<"$version"))"
+  installed=$(curl -sf --max-time 5 "$url/api/tags" | jq -r '[.models[].name] | join(", ")' 2>/dev/null || true)
+  echo "  Installed  ${installed:-none}"
+  case ", $installed, " in
+    *", $model, "*|*", $model:latest, "*) ;;
+    *) echo "  Missing    $model: run on the host: sandbox llm pull $model" ;;
+  esac
+else
+  echo "  Status     not reachable (is it still starting? check on the host: sandbox llm status)"
+fi
+
+cat <<INFO
+
+Claude Code (the cloud login stays untouched):
+  sandbox-llm claude
+
+OpenCode — opencode.json (project) or ~/.config/opencode/opencode.json:
+  {
+    "\$schema": "https://opencode.ai/config.json",
+    "provider": {
+      "sandbox-llm": {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": "Local LLM",
+        "options": { "baseURL": "$url/v1" },
+        "models": { "$model": { "name": "$model" } }
+      }
+    }
+  }
+
+VS Code, GitHub Copilot Chat (bring your own model):
+  settings.json:  "github.copilot.chat.byok.ollamaEndpoint": "$url"
+  then "Manage Models" in the chat model picker and choose Ollama.
+
+Continue — config.yaml:
+  models:
+    - name: Local LLM
+      provider: ollama
+      model: $model
+      apiBase: $url
+
+Any OpenAI-compatible tool: base URL $url/v1, any API key (for example "local").
+Anything that speaks Ollama's API: OLLAMA_HOST is already set to $url.
+INFO

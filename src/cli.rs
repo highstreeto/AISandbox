@@ -29,6 +29,9 @@ pub enum Command {
         /// Don't open the browser
         #[arg(long)]
         no_open: bool,
+        /// Don't download missing local LLM models
+        #[arg(long)]
+        no_pull: bool,
     },
     /// Stop (everything is kept)
     Stop,
@@ -50,9 +53,9 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Follow logs (proxy, gateway, desktop)
+    /// Follow logs (proxy, gateway, desktop, llm, ollama)
     Logs {
-        /// proxy | gateway | desktop (default: all)
+        /// proxy | gateway | desktop | llm | ollama (default: all)
         service: Vec<String>,
         /// Lines to show from the end
         #[arg(short = 'n', long, default_value_t = 100)]
@@ -86,6 +89,13 @@ pub enum Command {
     /// Reload the proxy after editing allowlist.txt
     Reload,
 
+    // --- Local LLM ---
+    /// The local LLM ([llm] in sandbox.toml): status, models, usage
+    Llm {
+        #[command(subcommand)]
+        command: LlmCommand,
+    },
+
     // --- Maintenance ---
     /// Rebuild after changing [tools] in sandbox.toml
     Rebuild,
@@ -106,6 +116,37 @@ pub enum Command {
     Info,
 }
 
+#[derive(Debug, Subcommand)]
+pub enum LlmCommand {
+    /// Model, GPU, endpoint, installed and loaded models
+    Status,
+    /// Download a model (default: the project's models)
+    Pull {
+        /// Ollama model tag, e.g. qwen3.6:27b
+        model: Option<String>,
+    },
+    /// Delete a model from the volume shared by all projects
+    Rm {
+        /// Ollama model tag
+        model: String,
+        /// Don't ask for confirmation
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Requests and tokens per day and model
+    Usage {
+        /// Only the last N days (today counts as one)
+        #[arg(long)]
+        days: Option<u32>,
+        /// Print JSON instead of a table
+        #[arg(long)]
+        json: bool,
+        /// Empty the usage log
+        #[arg(long, conflicts_with_all = ["days", "json"])]
+        clear: bool,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,7 +165,10 @@ mod tests {
     fn aliases_and_options() {
         assert!(matches!(
             parse(&["start", "--no-open"]).command,
-            Command::Up { no_open: true }
+            Command::Up {
+                no_open: true,
+                no_pull: false
+            }
         ));
         assert!(matches!(parse(&["ps"]).command, Command::Status));
         assert!(parse(&["status", "-v"]).verbose);
@@ -162,6 +206,40 @@ mod tests {
             Command::Claude { args } => assert_eq!(args, vec!["--help"]),
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn llm_commands() {
+        assert!(matches!(
+            parse(&["up", "--no-pull"]).command,
+            Command::Up { no_pull: true, .. }
+        ));
+        assert!(matches!(
+            parse(&["llm", "status"]).command,
+            Command::Llm {
+                command: LlmCommand::Status
+            }
+        ));
+        match parse(&["llm", "pull", "gpt-oss:20b"]).command {
+            Command::Llm {
+                command: LlmCommand::Pull { model },
+            } => assert_eq!(model.as_deref(), Some("gpt-oss:20b")),
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            parse(&["llm", "rm", "x", "-y"]).command,
+            Command::Llm {
+                command: LlmCommand::Rm { yes: true, .. }
+            }
+        ));
+        match parse(&["llm", "usage", "--days", "3", "--json"]).command {
+            Command::Llm {
+                command: LlmCommand::Usage { days, json, clear },
+            } => assert_eq!((days, json, clear), (Some(3), true, false)),
+            other => panic!("{other:?}"),
+        }
+        assert!(Cli::try_parse_from(["sandbox", "llm", "rm"]).is_err());
+        assert!(Cli::try_parse_from(["sandbox", "llm", "usage", "--clear", "--json"]).is_err());
     }
 
     #[test]

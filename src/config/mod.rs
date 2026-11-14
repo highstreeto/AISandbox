@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 use toml::{Table, Value};
 
 pub const FILE_NAME: &str = "sandbox.toml";
-/// Personal overrides next to `sandbox.toml`; not committed. Only `[host]` can be set in it.
+/// Personal overrides next to `sandbox.toml`; not committed. Only `[host]` and `[llm]` can be set in it.
 pub const LOCAL_FILE_NAME: &str = "sandbox.local.toml";
 
 /// Environment variables the sandbox sets itself, with where to change them instead (`None` = not at all).
@@ -27,7 +27,18 @@ const RESERVED_ENV: &[(&str, Option<&str>)] = &[
     ("SANDBOX_SUDO", Some("desktop.sudo")),
     ("CUSTOM_USER", Some("desktop.auth")),
     ("PASSWORD", Some("desktop.auth")),
+    ("SANDBOX_LLM_URL", Some("llm.model")),
+    ("SANDBOX_LLM_MODEL", Some("llm.model")),
+    ("SANDBOX_LLM_CONTEXT", Some("llm.context")),
+    ("OLLAMA_HOST", Some("llm.model")),
 ];
+
+/// The Ollama model used when `[llm]` is on without a `model`.
+pub const DEFAULT_LLM_MODEL: &str = "qwen3.6:27b";
+/// The context length (tokens) when `llm.context` is not set: Claude Code's system prompt alone is over 20K.
+pub const DEFAULT_LLM_CONTEXT: u32 = 65536;
+const MIN_LLM_CONTEXT: i64 = 2048;
+const MAX_LLM_CONTEXT: i64 = 1_048_576;
 
 /// The validated settings from `sandbox.toml`.
 #[derive(Debug, Clone)]
@@ -49,7 +60,58 @@ pub struct Settings {
     pub shares: Vec<Share>,
     pub browser: BrowserSetting,
     /// Which file `browser` is from.
-    pub browser_source: BrowserSource,
+    pub browser_source: SettingSource,
+    /// `[llm]`: the local model; `None` = off.
+    pub llm: Option<LlmSettings>,
+    /// `[llm]` is set up in `sandbox.toml` but `sandbox.local.toml` turns it off on this machine.
+    pub llm_off_locally: bool,
+}
+
+/// `[llm]`: a local model in its own container (Ollama behind a filtering gateway).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmSettings {
+    /// The model the desktop's tools use (an Ollama tag).
+    pub model: String,
+    /// More models that `up` pulls too (without the main one, no duplicates).
+    pub extra_models: Vec<String>,
+    /// Context length in tokens (`OLLAMA_CONTEXT_LENGTH`).
+    pub context: u32,
+    /// How long a model stays in memory after the last request (an Ollama duration); `None` = Ollama's default.
+    pub keep_alive: Option<String>,
+    pub gpu: LlmGpu,
+    /// Which file `model` is from (`Default`: the built-in model).
+    pub model_source: SettingSource,
+    /// Which file `gpu` is from.
+    pub gpu_source: SettingSource,
+}
+
+impl LlmSettings {
+    /// The main model first, then the extra ones.
+    pub fn all_models(&self) -> Vec<String> {
+        std::iter::once(self.model.clone())
+            .chain(self.extra_models.iter().cloned())
+            .collect()
+    }
+}
+
+/// `llm.gpu` (`sandbox.local.toml` only): what runs the model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LlmGpu {
+    Nvidia,
+    /// Linux only: the ROCm image with `/dev/kfd` and `/dev/dri`.
+    Amd,
+    /// The CPU.
+    None,
+}
+
+impl LlmGpu {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Nvidia => "nvidia",
+            Self::Amd => "amd",
+            Self::None => "none",
+        }
+    }
 }
 
 /// `[host] browser`: how `up` and `open` show the desktop.
@@ -65,14 +127,14 @@ pub enum BrowserSetting {
 
 /// Where a setting that can come from either file was read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BrowserSource {
+pub enum SettingSource {
     /// Not set anywhere.
     Default,
     Main,
     Local,
 }
 
-impl BrowserSource {
+impl SettingSource {
     /// The file name for messages; `None` when the setting was not set.
     pub fn file_name(self) -> Option<&'static str> {
         match self {
@@ -119,6 +181,11 @@ static MEMORY_SIZE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^\d+(\.\d+)?\s*[bkmg]?b?$").unwrap());
 static ENV_NAME: LazyLock<Regex> =
     LazyLock::new(|| Regex::new("^[A-Za-z_][A-Za-z0-9_]*$").unwrap());
+/// An Ollama model tag: `name`, `name:tag`, `namespace/name:tag`, `hf.co/org/repo:Q4_K_M`.
+static MODEL_TAG: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._/-]*(:[A-Za-z0-9._-]+)?$").unwrap());
+/// An Ollama duration: `30m`, `1h30m`, `90s`, or `-1` (never unload) / `0` (unload at once).
+static KEEP_ALIVE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(-1|0|(\d+[smh])+)$").unwrap());
 static INSTALL_ARG: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\s*ARG\s+(INSTALL_[A-Z0-9_]+)").unwrap());
 
@@ -196,6 +263,7 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
     let mut env = r.table("env")?;
     let mut shares = r.table_array("share")?;
     let mut host = r.table("host")?;
+    let mut llm = r.table("llm")?;
     r.done("table")?;
 
     // --- [project] ---
@@ -335,14 +403,17 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
         s.done("key")?;
     }
 
-    // --- [host] ---
-    let mut browser = (BrowserSetting::Default, BrowserSource::Default);
+    // --- [host] and [llm]; the local file overrides the main one ---
+    let mut browser = (BrowserSetting::Default, SettingSource::Default);
     if let Some(b) = read_host(&mut host, FILE_NAME)? {
-        browser = (b, BrowserSource::Main);
+        browser = (b, SettingSource::Main);
     }
-    if let Some(b) = read_local(&path.with_file_name(LOCAL_FILE_NAME))? {
-        browser = (b, BrowserSource::Local);
+    let main_llm = read_llm(&mut llm, FILE_NAME, false)?;
+    let local = read_local(&path.with_file_name(LOCAL_FILE_NAME))?;
+    if let Some(b) = local.browser {
+        browser = (b, SettingSource::Local);
     }
+    let (llm, llm_off_locally) = merge_llm(main_llm, local.llm);
 
     Ok(Settings {
         project_name: name
@@ -368,6 +439,8 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
         shares: share_list,
         browser: browser.0,
         browser_source: browser.1,
+        llm,
+        llm_off_locally,
     })
 }
 
@@ -387,25 +460,48 @@ fn parse_text(name: &str, text: &str) -> Result<Table> {
     })
 }
 
-/// `sandbox.local.toml`: its `[host] browser`, if the file exists and sets it. Nothing but `[host]` is allowed in it.
-fn read_local(path: &Utf8Path) -> Result<Option<BrowserSetting>> {
-    if !path.is_file() {
-        return Ok(None);
-    }
-    local_host(&parse_file(LOCAL_FILE_NAME, path)?)
+/// What `sandbox.local.toml` sets.
+#[derive(Debug, Default)]
+struct LocalSettings {
+    browser: Option<BrowserSetting>,
+    llm: LlmFile,
 }
 
-fn local_host(root: &Table) -> Result<Option<BrowserSetting>> {
-    if let Some(other) = root.keys().find(|k| *k != "host") {
+/// The keys of one `[llm]` section. `models` and `keep_alive` are only read from `sandbox.toml`, `gpu` only from
+/// `sandbox.local.toml`.
+#[derive(Debug, Default)]
+struct LlmFile {
+    enabled: Option<bool>,
+    model: Option<String>,
+    models: Vec<String>,
+    context: Option<u32>,
+    keep_alive: Option<String>,
+    gpu: Option<LlmGpu>,
+}
+
+/// `sandbox.local.toml`: its `[host]` and `[llm]` settings, if the file exists. Nothing else is allowed in it.
+fn read_local(path: &Utf8Path) -> Result<LocalSettings> {
+    if !path.is_file() {
+        return Ok(LocalSettings::default());
+    }
+    local_settings(&parse_file(LOCAL_FILE_NAME, path)?)
+}
+
+fn local_settings(root: &Table) -> Result<LocalSettings> {
+    if let Some(other) = root.keys().find(|k| *k != "host" && *k != "llm") {
         return Err(error_in(
             LOCAL_FILE_NAME,
-            format!("only [host] can be set here (found '{other}')."),
+            format!("only [host] and [llm] can be set here (found '{other}')."),
         ));
     }
     let mut r = TableReader::new_in(LOCAL_FILE_NAME, root, "");
     let mut host = r.table("host")?;
+    let mut llm = r.table("llm")?;
     r.done("table")?;
-    read_host(&mut host, LOCAL_FILE_NAME)
+    Ok(LocalSettings {
+        browser: read_host(&mut host, LOCAL_FILE_NAME)?,
+        llm: read_llm(&mut llm, LOCAL_FILE_NAME, true)?,
+    })
 }
 
 /// The `[host]` section of either file: `Some` if `browser` is set.
@@ -416,6 +512,117 @@ fn read_host(host: &mut TableReader, file: &str) -> Result<Option<BrowserSetting
     };
     host.done("key")?;
     Ok(setting)
+}
+
+/// The `[llm]` section of either file. `local` selects the keys: `gpu` only in `sandbox.local.toml`, `models` and
+/// `keep_alive` only in `sandbox.toml`.
+fn read_llm(llm: &mut TableReader, file: &'static str, local: bool) -> Result<LlmFile> {
+    let fail = |message: String| error_in(file, message);
+    let mut out = LlmFile {
+        enabled: llm.bool("enabled")?,
+        ..LlmFile::default()
+    };
+    if let Some(m) = llm.str("model")? {
+        out.model = Some(model_tag(file, "llm.model", m)?);
+    }
+    if !local {
+        for (i, m) in llm.str_list("models")?.iter().enumerate() {
+            let tag = model_tag(file, &format!("llm.models[{}]", i + 1), m)?;
+            if !out.models.contains(&tag) {
+                out.models.push(tag);
+            }
+        }
+    }
+    if let Some(c) = llm.int("context")? {
+        if !(MIN_LLM_CONTEXT..=MAX_LLM_CONTEXT).contains(&c) {
+            return Err(fail(format!(
+                "llm.context must be a whole number from {MIN_LLM_CONTEXT} to {MAX_LLM_CONTEXT} (got {c})."
+            )));
+        }
+        out.context = u32::try_from(c).ok();
+    }
+    if !local && let Some(k) = llm.str("keep_alive")? {
+        let k = k.trim();
+        if !KEEP_ALIVE.is_match(k) {
+            return Err(fail(format!(
+                "llm.keep_alive must be a duration like \"30m\", \"1h\" or \"-1\" for never (got \"{k}\")."
+            )));
+        }
+        out.keep_alive = Some(k.to_string());
+    }
+    if local && let Some(g) = llm.str("gpu")? {
+        out.gpu = Some(match g.trim() {
+            "nvidia" => LlmGpu::Nvidia,
+            "amd" => LlmGpu::Amd,
+            "none" => LlmGpu::None,
+            other => {
+                return Err(fail(format!(
+                    "llm.gpu must be \"nvidia\", \"amd\" or \"none\" (got \"{other}\")."
+                )));
+            }
+        });
+    }
+    llm.done("key")?;
+    Ok(out)
+}
+
+/// A model tag typed on the command line (`sandbox llm pull <model>`), trimmed.
+pub fn parse_model_tag(value: &str) -> Result<String> {
+    let tag = value.trim();
+    if !MODEL_TAG.is_match(tag) {
+        return Err(anyhow!(
+            "\"{tag}\" is not an Ollama model tag like \"{DEFAULT_LLM_MODEL}\"."
+        ));
+    }
+    Ok(tag.to_string())
+}
+
+/// A model tag, trimmed; `what` names the setting in the message.
+fn model_tag(file: &str, what: &str, value: &str) -> Result<String> {
+    let tag = value.trim();
+    if !MODEL_TAG.is_match(tag) {
+        return Err(error_in(
+            file,
+            format!(
+                "{what} must be an Ollama model tag like \"{DEFAULT_LLM_MODEL}\" (got \"{tag}\")."
+            ),
+        ));
+    }
+    Ok(tag.to_string())
+}
+
+/// The effective `[llm]`: `sandbox.toml` turns it on (a `model`, or `enabled = true`), `sandbox.local.toml` can
+/// turn it off (`enabled = false`), turn it on for this machine only (`enabled = true` or a `model`) and replace the
+/// model, the context and the GPU. The flag says that this machine's file switched off what the project turns on.
+fn merge_llm(main: LlmFile, local: LlmFile) -> (Option<LlmSettings>, bool) {
+    let main_on = main.enabled.unwrap_or(main.model.is_some());
+    let local_on = local.enabled.unwrap_or(local.model.is_some() || main_on);
+    if !local_on {
+        return (None, main_on && local.enabled == Some(false));
+    }
+    let (model, model_source) = match (&local.model, &main.model) {
+        (Some(m), _) => (m.clone(), SettingSource::Local),
+        (None, Some(m)) => (m.clone(), SettingSource::Main),
+        (None, None) => (DEFAULT_LLM_MODEL.to_string(), SettingSource::Default),
+    };
+    let extra_models = main.models.into_iter().filter(|m| *m != model).collect();
+    let llm = LlmSettings {
+        model,
+        extra_models,
+        context: local
+            .context
+            .or(main.context)
+            .unwrap_or(DEFAULT_LLM_CONTEXT),
+        keep_alive: main.keep_alive,
+        gpu: local.gpu.unwrap_or(LlmGpu::Nvidia),
+        model_source,
+        gpu_source: if local.gpu.is_some() {
+            SettingSource::Local
+        } else {
+            SettingSource::Default
+        },
+    };
+    (Some(llm), false)
 }
 
 /// `"default"` / true, false, a command (`"firefox"`) or a command with arguments (`["chromium", "--incognito"]`).
@@ -645,7 +852,7 @@ mod tests {
     fn the_browser_is_the_default_unless_set() {
         let s = read_str("").unwrap();
         assert_eq!(s.browser, BrowserSetting::Default);
-        assert_eq!(s.browser_source, BrowserSource::Default);
+        assert_eq!(s.browser_source, SettingSource::Default);
         assert_eq!(s.browser_source.file_name(), None);
     }
 
@@ -668,7 +875,7 @@ mod tests {
         for (value, expected) in cases {
             let s = read_str(&format!("[host]\nbrowser = {value}\n")).unwrap();
             assert_eq!(s.browser, expected, "{value}");
-            assert_eq!(s.browser_source, BrowserSource::Main, "{value}");
+            assert_eq!(s.browser_source, SettingSource::Main, "{value}");
         }
     }
 
@@ -725,25 +932,25 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.browser, BrowserSetting::Off);
-        assert_eq!(s.browser_source, BrowserSource::Local);
+        assert_eq!(s.browser_source, SettingSource::Local);
         assert_eq!(s.browser_source.file_name(), Some("sandbox.local.toml"));
 
         // a local file that sets nothing leaves the main file's value
         let s = read_with_local("[host]\nbrowser = \"firefox\"\n", "[host]\n").unwrap();
         assert_eq!(s.browser, command(&["firefox"]));
-        assert_eq!(s.browser_source, BrowserSource::Main);
+        assert_eq!(s.browser_source, SettingSource::Main);
         let s = read_with_local("", "").unwrap();
-        assert_eq!(s.browser_source, BrowserSource::Default);
+        assert_eq!(s.browser_source, SettingSource::Default);
     }
 
     #[test]
-    fn the_local_file_may_only_have_host() {
+    fn the_local_file_may_only_have_host_and_llm() {
         let e = read_with_local("", "[tools]\nnode = true\n")
             .unwrap_err()
             .to_string();
         assert_eq!(
             e,
-            "sandbox.local.toml: only [host] can be set here (found 'tools')."
+            "sandbox.local.toml: only [host] and [llm] can be set here (found 'tools')."
         );
         let e = read_with_local("", "[host]\nbrowser = false\n[env]\n")
             .unwrap_err()
@@ -776,6 +983,211 @@ mod tests {
         );
         let e = read_with_local("", "host = 1\n").unwrap_err().to_string();
         assert_eq!(e, "sandbox.local.toml: host must be a table (got 1).");
+    }
+
+    fn llm(main: &str, local: &str) -> Option<LlmSettings> {
+        read_with_local(main, local).unwrap().llm
+    }
+
+    fn llm_error(main: &str, local: &str) -> String {
+        read_with_local(main, local).unwrap_err().to_string()
+    }
+
+    #[test]
+    fn the_llm_is_off_unless_a_file_turns_it_on() {
+        assert_eq!(llm("", ""), None);
+        assert_eq!(llm("[llm]\ncontext = 8192\n", ""), None);
+        assert_eq!(llm("[llm]\nmodel = \"x:1\"\nenabled = false\n", ""), None);
+        assert!(
+            !read_with_local("[llm]\nmodel = \"x\"\n", "")
+                .unwrap()
+                .llm_off_locally
+        );
+    }
+
+    #[test]
+    fn a_model_or_enabled_turns_the_llm_on_with_defaults() {
+        let l = llm("[llm]\nmodel = \" gpt-oss:20b \"\n", "").unwrap();
+        assert_eq!(l.model, "gpt-oss:20b");
+        assert_eq!(l.model_source, SettingSource::Main);
+        assert_eq!(l.context, DEFAULT_LLM_CONTEXT);
+        assert_eq!(
+            (l.gpu, l.gpu_source),
+            (LlmGpu::Nvidia, SettingSource::Default)
+        );
+        assert_eq!(l.keep_alive, None);
+        assert!(l.extra_models.is_empty());
+
+        let l = llm("[llm]\nenabled = true\n", "").unwrap();
+        assert_eq!(l.model, DEFAULT_LLM_MODEL);
+        assert_eq!(l.model_source, SettingSource::Default);
+    }
+
+    #[test]
+    fn every_llm_key_of_the_main_file() {
+        let l = llm(
+            "[llm]\nmodel = \"a:1\"\nmodels = [\"b:2\", \"a:1\", \"b:2\", \"hf.co/o/r:Q4_K_M\"]\ncontext = 32768\nkeep_alive = \"1h30m\"\n",
+            "",
+        )
+        .unwrap();
+        assert_eq!(l.all_models(), vec!["a:1", "b:2", "hf.co/o/r:Q4_K_M"]);
+        assert_eq!((l.context, l.keep_alive.as_deref()), (32768, Some("1h30m")));
+        for k in ["-1", "0", "90s", "30m"] {
+            let l = llm(
+                &format!("[llm]\nenabled = true\nkeep_alive = \"{k}\"\n"),
+                "",
+            );
+            assert_eq!(l.unwrap().keep_alive.as_deref(), Some(k));
+        }
+    }
+
+    #[test]
+    fn the_local_file_changes_the_llm_for_this_machine() {
+        let main = "[llm]\nmodel = \"a:1\"\nmodels = [\"b:2\"]\ncontext = 8192\n";
+        let l = llm(
+            main,
+            "[llm]\nmodel = \"b:2\"\ncontext = 4096\ngpu = \"amd\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            (l.model.as_str(), l.model_source),
+            ("b:2", SettingSource::Local)
+        );
+        assert_eq!(l.all_models(), vec!["b:2"]);
+        assert_eq!(
+            (l.context, l.gpu, l.gpu_source),
+            (4096, LlmGpu::Amd, SettingSource::Local)
+        );
+
+        let s = read_with_local(main, "[llm]\nenabled = false\n").unwrap();
+        assert!(s.llm.is_none() && s.llm_off_locally);
+
+        // this machine only
+        let l = llm("", "[llm]\nmodel = \"c:3\"\ngpu = \"none\"\n").unwrap();
+        assert_eq!((l.model.as_str(), l.gpu), ("c:3", LlmGpu::None));
+        assert!(llm("", "[llm]\nenabled = true\n").is_some());
+        let s = read_with_local("", "[llm]\nenabled = false\n").unwrap();
+        assert!(s.llm.is_none() && !s.llm_off_locally);
+    }
+
+    #[test]
+    fn invalid_llm_values_are_errors_naming_the_file() {
+        let cases = [
+            (
+                "[llm]\nmodel = 5\n",
+                "sandbox.toml: llm.model must be a text in quotes (got 5).",
+            ),
+            (
+                "[llm]\nmodel = \"two words\"\n",
+                "sandbox.toml: llm.model must be an Ollama model tag like \"qwen3.6:27b\" (got \"two words\").",
+            ),
+            (
+                "[llm]\nmodel = \"\"\n",
+                "sandbox.toml: llm.model must be an Ollama model tag like \"qwen3.6:27b\" (got \"\").",
+            ),
+            (
+                "[llm]\nmodels = [\"ok\", \"a:b:c\"]\n",
+                "sandbox.toml: llm.models[2] must be an Ollama model tag like \"qwen3.6:27b\" (got \"a:b:c\").",
+            ),
+            (
+                "[llm]\nmodels = \"x\"\n",
+                "sandbox.toml: llm.models must be a list of texts, e.g. [\"a\", \"b\"] (got \"x\").",
+            ),
+            (
+                "[llm]\nenabled = \"yes\"\n",
+                "sandbox.toml: llm.enabled must be true or false (got \"yes\").",
+            ),
+            (
+                "[llm]\ncontext = 100\n",
+                "sandbox.toml: llm.context must be a whole number from 2048 to 1048576 (got 100).",
+            ),
+            (
+                "[llm]\ncontext = 2000000\n",
+                "sandbox.toml: llm.context must be a whole number from 2048 to 1048576 (got 2000000).",
+            ),
+            (
+                "[llm]\ncontext = 4096.5\n",
+                "sandbox.toml: llm.context must be a whole number (got 4096.5).",
+            ),
+            (
+                "[llm]\nkeep_alive = \"soon\"\n",
+                "sandbox.toml: llm.keep_alive must be a duration like \"30m\", \"1h\" or \"-1\" for never (got \"soon\").",
+            ),
+            (
+                "[llm]\ngpu = \"nvidia\"\n",
+                "sandbox.toml: unknown key 'llm.gpu' (known: enabled, model, models, context, keep_alive).",
+            ),
+            (
+                "[llm]\nextra = 1\n",
+                "sandbox.toml: unknown key 'llm.extra' (known: enabled, model, models, context, keep_alive).",
+            ),
+            ("llm = 1\n", "sandbox.toml: llm must be a table (got 1)."),
+        ];
+        for (toml, message) in cases {
+            assert_eq!(llm_error(toml, ""), message, "{toml}");
+        }
+    }
+
+    #[test]
+    fn invalid_local_llm_values_name_the_local_file() {
+        let cases = [
+            (
+                "[llm]\ngpu = \"intel\"\n",
+                "sandbox.local.toml: llm.gpu must be \"nvidia\", \"amd\" or \"none\" (got \"intel\").",
+            ),
+            (
+                "[llm]\ngpu = true\n",
+                "sandbox.local.toml: llm.gpu must be a text in quotes (got true).",
+            ),
+            (
+                "[llm]\nmodels = [\"x\"]\n",
+                "sandbox.local.toml: unknown key 'llm.models' (known: enabled, model, context, gpu).",
+            ),
+            (
+                "[llm]\nkeep_alive = \"1h\"\n",
+                "sandbox.local.toml: unknown key 'llm.keep_alive' (known: enabled, model, context, gpu).",
+            ),
+            (
+                "[llm]\nmodel = \"a b\"\n",
+                "sandbox.local.toml: llm.model must be an Ollama model tag like \"qwen3.6:27b\" (got \"a b\").",
+            ),
+            (
+                "[llm]\ncontext = 1\n",
+                "sandbox.local.toml: llm.context must be a whole number from 2048 to 1048576 (got 1).",
+            ),
+        ];
+        for (toml, message) in cases {
+            assert_eq!(llm_error("", toml), message, "{toml}");
+        }
+    }
+
+    #[test]
+    fn the_llm_environment_variables_are_reserved() {
+        for name in ["SANDBOX_LLM_URL", "sandbox_llm_model", "OLLAMA_HOST"] {
+            let e = read_str(&format!("[env]\n{name} = \"x\"\n"))
+                .unwrap_err()
+                .to_string();
+            assert_eq!(
+                e,
+                format!("sandbox.toml: env.{name} is set by the sandbox; use llm.model instead.")
+            );
+        }
+        let e = read_str("[env]\nSANDBOX_LLM_CONTEXT = \"x\"\n")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            e,
+            "sandbox.toml: env.SANDBOX_LLM_CONTEXT is set by the sandbox; use llm.context instead."
+        );
+    }
+
+    #[test]
+    fn model_tags_from_the_command_line() {
+        assert_eq!(parse_model_tag(" qwen3.6:27b ").unwrap(), "qwen3.6:27b");
+        assert_eq!(parse_model_tag("llama3").unwrap(), "llama3");
+        assert!(parse_model_tag("-rf").is_err());
+        assert!(parse_model_tag("a b").is_err());
+        assert!(parse_model_tag("").is_err());
     }
 
     #[test]

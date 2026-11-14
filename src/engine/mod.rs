@@ -1,10 +1,10 @@
-//! Writes the embedded engine into `.state/desktop/` and `.state/proxy/`, the build folders docker compose uses,
+//! Writes the embedded engine into `.state/desktop/`, `.state/proxy/` and `.state/llm/`, the build folders docker compose uses,
 //! and keeps them in step with the app.
 //!
-//! Every embedded file under `desktop/` and `proxy/` is written with a header comment (where the file type allows
+//! Every embedded file under `desktop/`, `proxy/` and `llm/` is written with a header comment (where the file type allows
 //! one). Missing files are written; files that already match are left alone (no write, mtime stays); files that
 //! still hold what the app wrote last time (per the manifest) are overwritten silently because the app was updated;
-//! files that differ from both were edited by hand, which is restored with a warning. Files in these two folders
+//! files that differ from both were edited by hand, which is restored with a warning. Files in these folders
 //! that the engine no longer has are deleted. Nothing else in `.state/` is touched.
 //!
 //! The manifest is written last, so a crash halfway is repaired by the next run: every step is idempotent.
@@ -24,9 +24,9 @@ use std::fs;
 use std::sync::LazyLock;
 
 /// The folders below `.state/` that belong to the engine.
-const FOLDERS: [&str; 2] = ["desktop", "proxy"];
+const FOLDERS: [&str; 3] = ["desktop", "proxy", "llm"];
 
-/// SHA-256 over the sorted names and contents of the embedded `desktop/` and `proxy/` files. Changes exactly when an
+/// SHA-256 over the sorted names and contents of the embedded `desktop/`, `proxy/` and `llm/` files. Changes exactly when an
 /// engine file changes.
 pub static ENGINE_HASH: LazyLock<String> = LazyLock::new(compute_engine_hash);
 
@@ -76,7 +76,7 @@ pub fn header_text() -> String {
     )
 }
 
-/// Brings `.state/desktop` and `.state/proxy` in line with the embedded engine.
+/// Brings `.state/desktop`, `.state/proxy` and `.state/llm` in line with the embedded engine.
 pub fn sync(state_dir: &Utf8Path) -> Result<SyncReport> {
     paths::create_dir_all(state_dir)?;
     let manifest_path = state_dir.join(".manifest");
@@ -266,14 +266,12 @@ mod tests {
     }
 
     #[test]
-    fn engine_hash_is_hex_and_covers_only_desktop_and_proxy() {
+    fn engine_hash_is_hex_and_covers_only_the_engine_folders() {
         assert_eq!(ENGINE_HASH.len(), 64);
         assert!(ENGINE_HASH.chars().all(|c| c.is_ascii_hexdigit()));
-        assert!(
-            engine_names()
-                .iter()
-                .all(|n| n.starts_with("desktop/") || n.starts_with("proxy/"))
-        );
+        assert!(engine_names().iter().all(|n| n.starts_with("desktop/")
+            || n.starts_with("proxy/")
+            || n.starts_with("llm/")));
         assert_eq!(short_engine_hash().len(), 12);
     }
 

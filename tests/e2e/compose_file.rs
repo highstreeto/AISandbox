@@ -668,3 +668,187 @@ fn shares_are_listed_by_info() {
     assert_output(&r, "/shares/docs");
     assert_output(&r, "read-only");
 }
+
+// --- the local LLM ----------------------------------------------------------------
+
+const LLM_ON: &str = "\n[llm]\nmodel = \"qwen3.6:27b\"\n";
+
+fn with_llm(f: &Fixture, llm: &str) -> Yaml {
+    f.write_conf(&(f.read_conf() + llm));
+    generate_parsed(f)
+}
+
+#[test]
+fn without_llm_there_are_no_llm_services_networks_or_volumes() {
+    let f = Fixture::new();
+    let text = generate(&f);
+    let root = parse(&text);
+    assert_eq!(
+        keys(at(&root, &["services"])),
+        ["proxy", "gateway", "desktop"]
+    );
+    assert_eq!(keys(at(&root, &["networks"])), ["sandbox", "egress", "ui"]);
+    assert_eq!(keys(at(&root, &["volumes"])), ["home"]);
+    assert!(!text.contains("llm") && !text.contains("ollama"));
+    assert_eq!(env(&f, "NO_PROXY"), "localhost,127.0.0.1,::1");
+    assert!(!has(
+        &service(&root, "desktop"),
+        &["environment", "SANDBOX_LLM_URL"]
+    ));
+    // off in the local file, on in the project: the same file
+    fs::write(f.dir.join("sandbox.local.toml"), "[llm]\nenabled = false\n").unwrap();
+    f.write_conf(&(f.read_conf() + LLM_ON));
+    assert_eq!(generate(&f), text);
+}
+
+#[test]
+fn a_model_adds_ollama_the_gateway_networks_and_volumes() {
+    let f = Fixture::new();
+    let root = with_llm(&f, LLM_ON);
+    assert_eq!(
+        keys(at(&root, &["services"])),
+        ["proxy", "gateway", "desktop", "ollama", "llm"]
+    );
+    assert_eq!(
+        keys(at(&root, &["networks"])),
+        ["sandbox", "egress", "ui", "llm", "llm-egress"]
+    );
+    assert_eq!(str_(&root, &["networks", "llm", "internal"]), "true");
+    assert!(!has(&root, &["networks", "llm-egress", "internal"]));
+    assert_eq!(
+        keys(at(&root, &["volumes"])),
+        ["home", "llm-usage", "models"]
+    );
+    assert_eq!(str_(&root, &["volumes", "models", "external"]), "true");
+    assert_eq!(
+        str_(&root, &["volumes", "models", "name"]),
+        "sandbox-llm-models"
+    );
+
+    let ollama = service(&root, "ollama");
+    assert_eq!(str_(&ollama, &["image"]), "ollama/ollama:0.40.16");
+    assert_eq!(seq(&ollama, &["networks"]), ["llm", "llm-egress"]);
+    assert_eq!(seq(&ollama, &["volumes"]), ["models:/root/.ollama"]);
+    assert_eq!(seq(&ollama, &["security_opt"]), ["no-new-privileges:true"]);
+    for (k, v) in [
+        ("OLLAMA_HOST", "0.0.0.0:11434"),
+        ("OLLAMA_CONTEXT_LENGTH", "65536"),
+        ("OLLAMA_FLASH_ATTENTION", "1"),
+        ("OLLAMA_KV_CACHE_TYPE", "q8_0"),
+    ] {
+        assert_eq!(str_(&ollama, &["environment", k]), v, "{k}");
+    }
+    assert!(!has(&ollama, &["environment", "OLLAMA_KEEP_ALIVE"]));
+    let device = at(&ollama, &["deploy", "resources", "reservations", "devices"]);
+    let Yaml::Array(devices) = device else {
+        panic!("{device:?}")
+    };
+    assert_eq!(str_(&devices[0], &["driver"]), "nvidia");
+    assert_eq!(str_(&devices[0], &["count"]), "all");
+    assert_eq!(seq(&devices[0], &["capabilities"]), ["gpu"]);
+    assert!(!has(&ollama, &["devices"]));
+    assert_eq!(
+        seq(&ollama, &["healthcheck", "test"]),
+        ["CMD", "ollama", "list"]
+    );
+
+    // the gateway: hardened, reachable from the desktop, no allowlist mount, waits for ollama
+    let gw = service(&root, "llm");
+    assert_eq!(str_(&gw, &["read_only"]), "true");
+    assert_eq!(seq(&gw, &["cap_drop"]), ["ALL"]);
+    assert_eq!(str_(&gw, &["build"]), "./.state/llm");
+    assert_eq!(seq(&gw, &["networks"]), ["sandbox", "llm"]);
+    assert_eq!(seq(&gw, &["volumes"]), ["llm-usage:/var/log/llm"]);
+    assert_eq!(seq(&gw, &["tmpfs"]), ["/tmp"]);
+    assert_eq!(
+        str_(&gw, &["depends_on", "ollama", "condition"]),
+        "service_healthy"
+    );
+    assert!(!has(&gw, &["ports"]));
+
+    // the desktop: the endpoint, no proxy for it, and no base URLs that would hijack cloud logins
+    assert_eq!(env(&f, "SANDBOX_LLM_URL"), "http://llm:11434");
+    assert_eq!(env(&f, "SANDBOX_LLM_MODEL"), "qwen3.6:27b");
+    assert_eq!(env(&f, "SANDBOX_LLM_CONTEXT"), "65536");
+    assert_eq!(env(&f, "OLLAMA_HOST"), "http://llm:11434");
+    assert_eq!(env(&f, "NO_PROXY"), "localhost,127.0.0.1,::1,llm");
+    assert_eq!(env(&f, "no_proxy"), "localhost,127.0.0.1,::1,llm");
+    let desktop = service(&root, "desktop");
+    assert_eq!(seq(&desktop, &["networks"]), ["sandbox"]);
+    for k in ["OPENAI_BASE_URL", "ANTHROPIC_BASE_URL"] {
+        assert!(!has(&desktop, &["environment", k]), "{k}");
+    }
+}
+
+#[test]
+fn llm_settings_reach_ollama() {
+    let f = Fixture::new();
+    let root = with_llm(
+        &f,
+        "\n[llm]\nenabled = true\ncontext = 32768\nkeep_alive = \"30m\"\n",
+    );
+    let ollama = service(&root, "ollama");
+    assert_eq!(
+        str_(&ollama, &["environment", "OLLAMA_CONTEXT_LENGTH"]),
+        "32768"
+    );
+    assert_eq!(str_(&ollama, &["environment", "OLLAMA_KEEP_ALIVE"]), "30m");
+    assert_eq!(env(&f, "SANDBOX_LLM_MODEL"), "qwen3.6:27b");
+    // the desktop knows it too, so Claude Code can compact before Ollama cuts the prompt
+    assert_eq!(env(&f, "SANDBOX_LLM_CONTEXT"), "32768");
+}
+
+#[test]
+fn the_local_file_changes_model_context_and_gpu() {
+    let f = Fixture::new();
+    f.write_conf(&(f.read_conf() + "\n[llm]\nmodel = \"qwen3.6:27b\"\ncontext = 8192\n"));
+    fs::write(
+        f.dir.join("sandbox.local.toml"),
+        "[llm]\nmodel = \"gpt-oss:20b\"\ncontext = 4096\ngpu = \"none\"\n",
+    )
+    .unwrap();
+    let root = generate_parsed(&f);
+    let ollama = service(&root, "ollama");
+    assert_eq!(
+        str_(&ollama, &["environment", "OLLAMA_CONTEXT_LENGTH"]),
+        "4096"
+    );
+    assert_eq!(env(&f, "SANDBOX_LLM_MODEL"), "gpt-oss:20b");
+    assert!(!has(&ollama, &["deploy"]));
+    assert!(!has(&ollama, &["devices"]));
+    assert_eq!(str_(&ollama, &["image"]), "ollama/ollama:0.40.16");
+}
+
+#[test]
+fn amd_uses_the_rocm_image_and_the_gpu_devices() {
+    let f = Fixture::new();
+    f.write_conf(&(f.read_conf() + LLM_ON));
+    fs::write(f.dir.join("sandbox.local.toml"), "[llm]\ngpu = \"amd\"\n").unwrap();
+    let ollama = service(&generate_parsed(&f), "ollama");
+    assert_eq!(str_(&ollama, &["image"]), "ollama/ollama:0.40.16-rocm");
+    assert_eq!(
+        seq(&ollama, &["devices"]),
+        ["/dev/kfd:/dev/kfd", "/dev/dri:/dev/dri"]
+    );
+    assert!(!has(&ollama, &["deploy"]));
+}
+
+#[test]
+fn the_local_file_can_turn_the_llm_on_for_this_machine() {
+    let f = Fixture::new();
+    fs::write(f.dir.join("sandbox.local.toml"), "[llm]\nenabled = true\n").unwrap();
+    let root = generate_parsed(&f);
+    assert!(has(&root, &["services", "ollama"]));
+    assert_eq!(env(&f, "SANDBOX_LLM_MODEL"), "qwen3.6:27b");
+}
+
+#[test]
+fn llm_values_are_quoted() {
+    let f = Fixture::new();
+    f.write_conf(&(f.read_conf() + "\n[llm]\nmodel = \"hf.co/org/repo:Q4_K_M\"\n"));
+    let text = generate(&f);
+    assert!(
+        text.contains("SANDBOX_LLM_MODEL: \"hf.co/org/repo:Q4_K_M\""),
+        "{text}"
+    );
+}

@@ -1,6 +1,7 @@
 //! Building, starting, stopping and using the sandbox: up, rebuild, stop/down/restart, status, open, shell, claude,
 //! logs.
 
+use super::llm;
 use crate::compose;
 use crate::config::BrowserSetting;
 use crate::docker::Docker;
@@ -14,9 +15,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const CLAUDE_SCRIPT: &str = "command -v claude >/dev/null || { echo \"Claude Code CLI not installed: set claude_code under [tools] in sandbox.toml and rebuild.\"; exit 1; }; exec claude \"$@\"";
 
-pub fn up(d: &Docker, open_browser: bool) -> Result<i32> {
+pub fn up(d: &Docker, open_browser: bool, pull_models: bool) -> Result<i32> {
     build(d, false)?;
+    start_llm_volume(d)?;
     start_and_wait(d, true)?;
+    if pull_models {
+        llm::pull_missing(d)?;
+    }
     std::thread::sleep(Duration::from_secs(2));
     let Some(url) = d.ui_url() else {
         bail!("The sandbox started, but its UI port could not be determined.");
@@ -38,9 +43,19 @@ pub fn up(d: &Docker, open_browser: bool) -> Result<i32> {
 
 pub fn rebuild(d: &Docker, pull: bool) -> Result<i32> {
     build(d, pull)?;
+    start_llm_volume(d)?;
     start_and_wait(d, false)?;
+    llm::pull_missing(d)?;
     d.ui.success("Rebuilt and running.");
     Ok(0)
+}
+
+/// The models volume is external: it has to exist before compose starts the stack.
+fn start_llm_volume(d: &Docker) -> Result<()> {
+    if d.project.settings.llm.is_some() {
+        llm::create_volume(d)?;
+    }
+    Ok(())
 }
 
 /// Runs one docker compose command with a spinner (stop, down, restart).
@@ -140,9 +155,7 @@ pub fn warn_restored(ui: &Ui, rel: &str) {
 }
 
 pub fn info_updated(ui: &Ui, rel: &str) {
-    ui.info(&format!(
-        ".state/{rel} was updated to the latest version"
-    ));
+    ui.info(&format!(".state/{rel} was updated to the latest version"));
 }
 
 /// Image build: docker's own progress output is shown as-is (it can take minutes the first time).
@@ -191,6 +204,9 @@ fn start_and_wait(d: &Docker, tolerate_unhealthy: bool) -> Result<()> {
         return Ok(());
     }
     d.ui.show_output("docker compose up", &up);
+    if let Some(hint) = llm::gpu_hint(d, &up) {
+        d.ui.warn(&hint);
+    }
     bail!("Starting the sandbox failed (see the output above).");
 }
 

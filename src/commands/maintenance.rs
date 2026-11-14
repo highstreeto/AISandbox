@@ -126,6 +126,7 @@ pub fn info(ui: &Ui, project: &Project) -> Result<i32> {
                 .map_or("random free port".to_string(), |p| p.to_string()),
         ),
         ("Browser".into(), browser_text(st)),
+        ("LLM".into(), llm_text(st)),
         (
             "Engine".into(),
             format!(
@@ -213,6 +214,31 @@ fn browser_text(st: &Settings) -> String {
         Some(file) => format!("{what} ({file})"),
         None => what,
     }
+}
+
+/// `[llm]`: `qwen3.6:27b (sandbox.toml), GPU nvidia, http://llm:11434`, or why it is off.
+fn llm_text(st: &Settings) -> String {
+    let Some(llm) = &st.llm else {
+        return if st.llm_off_locally {
+            format!("off ({})", config::LOCAL_FILE_NAME)
+        } else {
+            "off".to_string()
+        };
+    };
+    let from = llm
+        .model_source
+        .file_name()
+        .map_or("built-in default", |f| f);
+    let mut text = format!(
+        "{} ({from}), GPU {}, {}",
+        llm.model,
+        llm.gpu.name(),
+        super::llm::ENDPOINT
+    );
+    if !llm.extra_models.is_empty() {
+        text.push_str(&format!(", also {}", llm.extra_models.join(", ")));
+    }
+    text
 }
 
 fn yes_no(b: bool) -> &'static str {

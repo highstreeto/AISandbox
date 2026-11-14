@@ -17,10 +17,10 @@ RUN apt-get update \
       iputils-ping dnsutils \
  && rm -rf /var/lib/apt/lists/*
 
-COPY bin/sandbox-install /usr/local/bin/
+COPY bin/sandbox-install bin/sandbox-llm /usr/local/bin/
 COPY tools/ /usr/local/lib/sandbox/tools/
-RUN sed -i 's/\r$//' /usr/local/bin/sandbox-install /usr/local/lib/sandbox/tools/*.sh \
- && chmod 0755 /usr/local/bin/sandbox-install /usr/local/lib/sandbox/tools/*.sh
+RUN sed -i 's/\r$//' /usr/local/bin/sandbox-install /usr/local/bin/sandbox-llm /usr/local/lib/sandbox/tools/*.sh \
+ && chmod 0755 /usr/local/bin/sandbox-install /usr/local/bin/sandbox-llm /usr/local/lib/sandbox/tools/*.sh
 
 # "sandbox update" bumps this to fetch the newest versions of everything below.
 ARG CACHE_BUST=0

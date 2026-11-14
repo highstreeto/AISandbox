@@ -49,6 +49,17 @@ claude.ai
 # globalcdn.nuget.org
 "#;
 
+/// The same with the local LLM: `ollama` and the `llm` gateway running.
+pub fn ps_json_with_llm() -> String {
+    ps_json()
+        + &[
+            r#"{"Service":"ollama","State":"running","Health":"healthy","Status":"Up 2 minutes (healthy)","Publishers":[]}"#,
+            r#"{"Service":"llm","State":"running","Health":"healthy","Status":"Up 2 minutes (healthy)","Publishers":[]}"#,
+        ]
+        .join("\n")
+        + "\n"
+}
+
 /// Three healthy services, one JSON object per line like `docker compose ps --format json` prints them.
 pub fn ps_json() -> String {
     [
@@ -121,6 +132,9 @@ impl Fixture {
     }
     pub fn proxy_context(&self) -> Utf8PathBuf {
         self.state_dir().join("proxy")
+    }
+    pub fn llm_context(&self) -> Utf8PathBuf {
+        self.state_dir().join("llm")
     }
     pub fn generated_file(&self) -> Utf8PathBuf {
         self.state_dir().join("compose.yml")

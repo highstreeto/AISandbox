@@ -78,7 +78,14 @@ fn stop_down_restart(#[case] cmd: &str) {
     let f = Fixture::new();
     let r = f.run(&[cmd]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&[cmd])]);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&[cmd]),
+        ],
+    );
     assert_output(&r, ": done.");
 }
 
@@ -89,7 +96,15 @@ fn status_lists_services_and_url(#[case] cmd: &str) {
     let f = Fixture::new();
     let r = f.run(&[cmd]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), ps(&f), port(&f)]);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            ps(&f),
+            port(&f),
+        ],
+    );
     for s in [
         "desktop",
         "gateway",
@@ -110,7 +125,10 @@ fn status_without_containers() {
         RunOpts::default().rules(vec![rule("ps -a --format json")]),
     );
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), ps(&f)]);
+    assert_calls(
+        &r,
+        &[docker_info(), f.collision_check(PROJECT_NAME), ps(&f)],
+    );
     assert_output(&r, "No containers for 'demo-project'");
 }
 
@@ -120,7 +138,15 @@ fn open_asks_for_the_port_and_opens_the_browser() {
     let f = Fixture::new();
     let r = f.run_with(&["open"], RunOpts::default().wait_for("xdg-open"));
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), port(&f), call("xdg-open", &[URL])]);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            port(&f),
+            call("xdg-open", &[URL]),
+        ],
+    );
 }
 
 #[cfg(unix)]
@@ -130,7 +156,15 @@ fn open_starts_the_configured_browser_with_the_url_last() {
     f.write_conf(&(f.read_conf() + "\n[host]\nbrowser = [\"xdg-open\", \"--private\"]\n"));
     let r = f.run_with(&["open"], RunOpts::default().wait_for("xdg-open"));
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), port(&f), call("xdg-open", &["--private", URL])]);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            port(&f),
+            call("xdg-open", &["--private", URL]),
+        ],
+    );
 }
 
 #[test]
@@ -139,7 +173,10 @@ fn open_with_the_browser_off_only_prints_the_url() {
     f.write_conf(&(f.read_conf() + "\n[host]\nbrowser = false\n"));
     let r = f.run(&["open"]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), port(&f)]);
+    assert_calls(
+        &r,
+        &[docker_info(), f.collision_check(PROJECT_NAME), port(&f)],
+    );
     assert_output(&r, URL);
 }
 
@@ -192,7 +229,14 @@ fn claude_forwards_all_arguments_verbatim(#[case] args: &[&str]) {
         "claude",
     ];
     expected.extend_from_slice(args);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose_interactive(&expected)]);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose_interactive(&expected),
+        ],
+    );
 }
 
 #[test]
@@ -233,7 +277,14 @@ fn allow_uncomments_an_entry_and_reloads_the_proxy() {
     assert!(lines_of(&f.allowlist_file()).contains(&"# api.nuget.org".to_string()));
     let r = f.run(&["allow", "api.nuget.org", "new.example.com", "claude.ai"]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&["restart", "proxy"])]);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&["restart", "proxy"]),
+        ],
+    );
     let lines = lines_of(&f.allowlist_file());
     assert!(lines.contains(&"api.nuget.org".to_string()));
     assert!(!lines.contains(&"# api.nuget.org".to_string()));
@@ -250,7 +301,14 @@ fn deny_comments_an_entry_and_reloads_the_proxy() {
     let f = Fixture::new();
     let r = f.run(&["deny", "claude.ai", "not-there.example.com"]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&["restart", "proxy"])]);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&["restart", "proxy"]),
+        ],
+    );
     let lines = lines_of(&f.allowlist_file());
     assert!(lines.contains(&"# claude.ai".to_string()));
     assert!(!lines.contains(&"claude.ai".to_string()));
@@ -263,7 +321,14 @@ fn reload_restarts_the_proxy() {
     let f = Fixture::new();
     let r = f.run(&["reload"]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), f.compose(&["restart", "proxy"])]);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&["restart", "proxy"]),
+        ],
+    );
 }
 
 #[test]
@@ -417,13 +482,22 @@ fn info_shows_the_browser_and_where_it_is_set() {
     let f = Fixture::new();
     let r = f.run(&["info"]);
     assert_exit(&r, 0);
-    assert!(Regex::new(r"Browser\s+system default\s").unwrap().is_match(&r.stdout), "{r}");
+    assert!(
+        Regex::new(r"Browser\s+system default\s")
+            .unwrap()
+            .is_match(&r.stdout),
+        "{r}"
+    );
 
     f.write_conf(&(f.read_conf() + "\n[host]\nbrowser = [\"firefox\", \"-private\"]\n"));
     let r = f.run(&["info"]);
     assert_output(&r, "firefox -private (sandbox.toml)");
 
-    fs::write(f.dir.join("sandbox.local.toml"), "[host]\nbrowser = false\n").unwrap();
+    fs::write(
+        f.dir.join("sandbox.local.toml"),
+        "[host]\nbrowser = false\n",
+    )
+    .unwrap();
     let r = f.run(&["info"]);
     assert_exit(&r, 0);
     assert_output(&r, "off (nothing is opened) (sandbox.local.toml)");
@@ -476,7 +550,15 @@ fn verbose_prints_the_docker_commands() {
     let f = Fixture::new();
     let r = f.run(&["status", "-v"]);
     assert_exit(&r, 0);
-    assert_calls(&r, &[docker_info(), f.collision_check(PROJECT_NAME), ps(&f), port(&f)]);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            ps(&f),
+            port(&f),
+        ],
+    );
     assert_output(&r, "$ docker info --format {{.ServerVersion}}");
     assert_output(
         &r,
@@ -596,4 +678,486 @@ fn sandbox_dir_must_be_a_sandbox_folder() {
             f.project_dir
         ),
     );
+}
+
+// --- local LLM ------------------------------------------------------------------
+
+const LLM_CONF: &str = "\n[llm]\nmodel = \"qwen3.6:27b\"\nmodels = [\"gpt-oss:20b\"]\n";
+const LIST_HEADER: &str = "NAME  ID  SIZE  MODIFIED\n";
+
+fn with_llm(f: &Fixture) {
+    f.write_conf(&(f.read_conf() + LLM_CONF));
+}
+
+fn ollama(f: &Fixture, args: &[&str]) -> Call {
+    let mut a = vec!["exec", "-T", "ollama", "ollama"];
+    a.extend_from_slice(args);
+    f.compose(&a)
+}
+
+fn ollama_interactive(f: &Fixture, args: &[&str]) -> Call {
+    let mut a = vec!["exec", "-T", "ollama", "ollama"];
+    a.extend_from_slice(args);
+    f.compose_interactive(&a)
+}
+
+fn volume_create() -> Call {
+    docker(&["volume", "create", "sandbox-llm-models"])
+}
+
+fn llm_running() -> RunOpts {
+    RunOpts::default().rules(vec![rule("ps -a --format json").stdout(ps_json_with_llm())])
+}
+
+#[test]
+fn up_with_llm_creates_the_volume_and_pulls_the_missing_models() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(
+        &["up", "--no-open"],
+        RunOpts::default().rules(vec![
+            rule("ollama list").stdout(format!("{LIST_HEADER}gpt-oss:20b  abc  14 GB  now\n")),
+        ]),
+    );
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose_interactive(&["build"]),
+            volume_create(),
+            up_wait(&f),
+            ollama(&f, &["list"]),
+            ollama_interactive(&f, &["pull", "qwen3.6:27b"]),
+            port(&f),
+        ],
+    );
+    assert_output(&r, "Downloading one model");
+    assert_output(&r, "Pulling qwen3.6:27b (about 17 GB)");
+    assert_output(&r, URL);
+}
+
+#[test]
+fn up_with_llm_pulls_nothing_when_the_models_are_there() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(
+        &["up", "--no-open"],
+        RunOpts::default().rules(vec![rule("ollama list").stdout(format!(
+            "{LIST_HEADER}qwen3.6:27b  a  17 GB  now\ngpt-oss:20b  b  14 GB  now\n"
+        ))]),
+    );
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose_interactive(&["build"]),
+            volume_create(),
+            up_wait(&f),
+            ollama(&f, &["list"]),
+            port(&f),
+        ],
+    );
+}
+
+#[test]
+fn up_no_pull_does_not_even_ask_ollama() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run(&["up", "--no-open", "--no-pull"]);
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose_interactive(&["build"]),
+            volume_create(),
+            up_wait(&f),
+            port(&f),
+        ],
+    );
+}
+
+#[test]
+fn up_without_llm_touches_no_volume() {
+    let f = Fixture::new();
+    let r = f.run(&["up", "--no-open"]);
+    assert!(
+        !r.calls
+            .iter()
+            .any(|c| c.args.contains(&"volume".to_string()))
+    );
+    assert!(
+        !r.calls
+            .iter()
+            .any(|c| c.args.contains(&"ollama".to_string()))
+    );
+}
+
+#[test]
+fn up_with_llm_switched_off_locally_is_the_plain_flow() {
+    let f = Fixture::new();
+    with_llm(&f);
+    fs::write(f.dir.join("sandbox.local.toml"), "[llm]\nenabled = false\n").unwrap();
+    let r = f.run(&["up", "--no-open"]);
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose_interactive(&["build"]),
+            up_wait(&f),
+            port(&f),
+        ],
+    );
+}
+
+#[test]
+fn a_failed_download_names_the_retry_command() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(
+        &["up", "--no-open"],
+        RunOpts::default().rules(vec![
+            rule("ollama pull").exit(1),
+            rule("ollama list").stdout(LIST_HEADER),
+        ]),
+    );
+    assert_exit(&r, 1);
+    assert_output(&r, "Downloading qwen3.6:27b failed");
+    assert_output(&r, "llm pull qwen3.6:27b");
+}
+
+#[test]
+fn a_missing_gpu_driver_is_explained() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(
+        &["up", "--no-open"],
+        RunOpts::default().rules(vec![
+            rule("up -d --wait")
+                .stderr("Error response from daemon: could not select device driver \"\" with capabilities: [[gpu]]\n")
+                .exit(1),
+            rule("ps -a --format json").stdout(""),
+        ]),
+    );
+    assert_exit(&r, 1);
+    assert_output(&r, "could not select device driver");
+    assert_output(&r, "NVIDIA Container Toolkit");
+    assert_output(&r, "Docker Desktop with the WSL2 backend");
+    assert_output(&r, "gpu = \"none\" under [llm] in sandbox.local.toml");
+}
+
+#[test]
+fn a_failed_start_without_gpu_words_gets_no_gpu_hint() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(
+        &["up", "--no-open"],
+        RunOpts::default().rules(vec![
+            rule("up -d --wait").stderr("boom\n").exit(1),
+            rule("ps -a --format json").stdout(""),
+        ]),
+    );
+    assert_exit(&r, 1);
+    assert!(!r.output().contains("NVIDIA Container Toolkit"), "{r}");
+}
+
+#[test]
+fn rebuild_with_llm_creates_the_volume_and_pulls() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(
+        &["rebuild"],
+        RunOpts::default().rules(vec![rule("ollama list").stdout(LIST_HEADER)]),
+    );
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose_interactive(&["build"]),
+            volume_create(),
+            up_wait(&f),
+            ollama(&f, &["list"]),
+            ollama_interactive(&f, &["pull", "qwen3.6:27b"]),
+            ollama_interactive(&f, &["pull", "gpt-oss:20b"]),
+        ],
+    );
+}
+
+#[test]
+fn llm_commands_need_the_llm_to_be_on() {
+    let f = Fixture::new();
+    let r = f.run(&["llm", "status"]);
+    assert_exit(&r, 1);
+    assert_output(&r, "The local LLM is off for this project.");
+    assert_output(&r, "under [llm] in sandbox.toml");
+
+    with_llm(&f);
+    fs::write(f.dir.join("sandbox.local.toml"), "[llm]\nenabled = false\n").unwrap();
+    let r = f.run(&["llm", "pull"]);
+    assert_exit(&r, 1);
+    assert_output(&r, "switched off on this machine");
+}
+
+#[test]
+fn llm_status_shows_the_settings_and_asks_ollama() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(
+        &["llm", "status"],
+        RunOpts::default().rules(vec![
+            rule("ollama list").stdout(format!("{LIST_HEADER}qwen3.6:27b  a  17 GB  now\n")),
+            rule("ollama ps").stdout(
+                "NAME  ID  SIZE  PROCESSOR  UNTIL\nqwen3.6:27b  a  20 GB  100% GPU  4 minutes\n",
+            ),
+            rule("ps -a --format json").stdout(ps_json_with_llm()),
+        ]),
+    );
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&["ps", "-a", "--format", "json"]),
+            ollama(&f, &["list"]),
+            ollama(&f, &["ps"]),
+        ],
+    );
+    for text in [
+        "qwen3.6:27b (sandbox.toml)",
+        "gpt-oss:20b",
+        "nvidia",
+        "http://llm:11434",
+        "100% GPU",
+    ] {
+        assert_output(&r, text);
+    }
+}
+
+#[test]
+fn llm_status_when_it_is_not_running() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run(&["llm", "status"]);
+    assert_exit(&r, 1);
+    assert_output(&r, "The local LLM is not running (start it with:");
+}
+
+#[test]
+fn llm_pull_defaults_to_the_projects_models() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(&["llm", "pull"], llm_running());
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&["ps", "-a", "--format", "json"]),
+            ollama_interactive(&f, &["pull", "qwen3.6:27b"]),
+            ollama_interactive(&f, &["pull", "gpt-oss:20b"]),
+        ],
+    );
+    assert_output(&r, "Models ready: qwen3.6:27b, gpt-oss:20b.");
+}
+
+#[test]
+fn llm_pull_one_model_and_invalid_tags() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(&["llm", "pull", "devstral-small-2"], llm_running());
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&["ps", "-a", "--format", "json"]),
+            ollama_interactive(&f, &["pull", "devstral-small-2"]),
+        ],
+    );
+    let r = f.run_with(&["llm", "pull", "two words"], llm_running());
+    assert_exit(&r, 1);
+    assert_output(&r, "\"two words\" is not an Ollama model tag");
+    assert!(!r.calls.iter().any(|c| c.args.contains(&"pull".to_string())));
+}
+
+#[test]
+fn llm_rm_asks_first_and_deletes_with_yes() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(&["llm", "rm", "gpt-oss:20b"], llm_running());
+    assert_exit(&r, 1);
+    assert_output(
+        &r,
+        "Refusing to delete a model without confirmation (use --yes).",
+    );
+    assert!(!r.calls.iter().any(|c| c.args.contains(&"rm".to_string())));
+
+    let r = f.run_with(&["llm", "rm", "gpt-oss:20b", "--yes"], llm_running());
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&["ps", "-a", "--format", "json"]),
+            ollama(&f, &["rm", "gpt-oss:20b"]),
+        ],
+    );
+    assert_output(&r, "Deleted gpt-oss:20b.");
+}
+
+const USAGE_LOG: &str = concat!(
+    "{\"ts\":\"2026-11-13T10:00:00+00:00\",\"path\":\"/api/chat\",\"status\":200,\"secs\":2.000,\"model\":\"qwen3.6:27b\",\"in\":100,\"out\":50,\"stream\":true}\n",
+    "{\"ts\":\"2026-11-13T11:00:00+00:00\",\"path\":\"/v1/chat/completions\",\"status\":200,\"secs\":3.000,\"model\":\"qwen3.6:27b\",\"in\":200,\"out\":100,\"stream\":false}\n",
+    "{\"ts\":\"2026-11-13T12:00:00+00:00\",\"path\":\"/v1/messages\",\"status\":500,\"secs\":0.010,\"model\":\"qwen3.6:27b\",\"in\":null,\"out\":null,\"stream\":true}\n",
+);
+
+fn usage_rules() -> RunOpts {
+    RunOpts::default().rules(vec![
+        rule("cat /var/log/llm/usage.jsonl").stdout(USAGE_LOG),
+        rule("ps -a --format json").stdout(ps_json_with_llm()),
+    ])
+}
+
+fn read_usage(f: &Fixture) -> Call {
+    f.compose(&["exec", "-T", "llm", "cat", "/var/log/llm/usage.jsonl"])
+}
+
+#[test]
+fn llm_usage_prints_a_table_per_day_and_model() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(&["llm", "usage"], usage_rules());
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&["ps", "-a", "--format", "json"]),
+            read_usage(&f),
+        ],
+    );
+    let row =
+        Regex::new(r"2026-11-13\s*│\s*qwen3.6:27b\s*│\s*3\s*│\s*1\s*│\s*300\s*│\s*150\s*│\s*30.0")
+            .unwrap();
+    assert!(row.is_match(&r.stdout), "{r}");
+}
+
+#[test]
+fn llm_usage_as_json() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(&["llm", "usage", "--json"], usage_rules());
+    assert_exit(&r, 0);
+    let rows: serde_json::Value = serde_json::from_str(&r.stdout).unwrap();
+    assert_eq!(
+        rows,
+        serde_json::json!([{
+            "day": "2026-11-13",
+            "model": "qwen3.6:27b",
+            "requests": 3,
+            "errors": 1,
+            "input_tokens": 300,
+            "output_tokens": 150,
+            "output_tokens_per_second": 30.0
+        }])
+    );
+}
+
+#[test]
+fn llm_usage_days_cuts_off_old_days() {
+    let f = Fixture::new();
+    with_llm(&f);
+    // the canned log is from 2026-11-13; today is later than that
+    let r = f.run_with(&["llm", "usage", "--days", "1"], usage_rules());
+    assert_exit(&r, 0);
+    assert_output(&r, "No requests recorded yet.");
+}
+
+#[test]
+fn llm_usage_clear_empties_the_log() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(&["llm", "usage", "--clear"], llm_running());
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose(&["ps", "-a", "--format", "json"]),
+            f.compose(&[
+                "exec",
+                "-T",
+                "llm",
+                "sh",
+                "-c",
+                ": > /var/log/llm/usage.jsonl",
+            ]),
+        ],
+    );
+    assert_output(&r, "Usage log cleared.");
+}
+
+#[test]
+fn info_shows_the_llm_row() {
+    let f = Fixture::new();
+    let r = f.run(&["info"]);
+    assert_exit(&r, 0);
+    assert!(
+        Regex::new(r"LLM\s+off\s").unwrap().is_match(&r.stdout),
+        "{r}"
+    );
+
+    with_llm(&f);
+    let r = f.run(&["info"]);
+    assert_output(
+        &r,
+        "qwen3.6:27b (sandbox.toml), GPU nvidia, http://llm:11434, also gpt-oss:20b",
+    );
+
+    fs::write(
+        f.dir.join("sandbox.local.toml"),
+        "[llm]\nmodel = \"gpt-oss:20b\"\ngpu = \"none\"\n",
+    )
+    .unwrap();
+    let r = f.run(&["info"]);
+    assert_output(
+        &r,
+        "gpt-oss:20b (sandbox.local.toml), GPU none, http://llm:11434",
+    );
+
+    fs::write(f.dir.join("sandbox.local.toml"), "[llm]\nenabled = false\n").unwrap();
+    let r = f.run(&["info"]);
+    assert_output(&r, "off (sandbox.local.toml)");
+}
+
+#[test]
+fn down_and_reset_home_never_touch_the_models_volume() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run(&["reset-home", "--yes"]);
+    assert_exit(&r, 0);
+    let removed: Vec<&Call> = r
+        .calls
+        .iter()
+        .filter(|c| c.args.first().map(String::as_str) == Some("volume"))
+        .collect();
+    assert_eq!(removed.len(), 1, "{r}");
+    assert_eq!(removed[0].args, ["volume", "rm", "demo-project_home"]);
+    let r = f.run(&["down"]);
+    assert!(r.calls.iter().all(|c| !c.args.contains(&"-v".to_string())));
 }

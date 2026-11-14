@@ -324,7 +324,7 @@ fn allow_rejects_an_invalid_host() {
 )]
 #[case(
     "[tool]\nnode = 24\n",
-    "sandbox.toml: unknown setting 'tool' (known: project, tools, desktop, env, share, host)."
+    "sandbox.toml: unknown setting 'tool' (known: project, tools, desktop, env, share, host, llm)."
 )]
 #[case("project = 1\n", "sandbox.toml: project must be a table (got 1).")]
 #[case(
@@ -415,6 +415,38 @@ fn allow_rejects_an_invalid_host() {
     "[project]\nworkspace = \n",
     "sandbox.toml is not valid TOML (line 2, column 13):"
 )]
+#[case(
+    "[llm]\nmodel = \"two words\"\n",
+    "sandbox.toml: llm.model must be an Ollama model tag like \"qwen3.6:27b\" (got \"two words\")."
+)]
+#[case(
+    "[llm]\nmodels = [\"ok\", \"\"]\n",
+    "sandbox.toml: llm.models[2] must be an Ollama model tag like \"qwen3.6:27b\" (got \"\")."
+)]
+#[case(
+    "[llm]\nenabled = 1\n",
+    "sandbox.toml: llm.enabled must be true or false (got 1)."
+)]
+#[case(
+    "[llm]\ncontext = 1000\n",
+    "sandbox.toml: llm.context must be a whole number from 2048 to 1048576 (got 1000)."
+)]
+#[case(
+    "[llm]\nkeep_alive = \"forever\"\n",
+    "sandbox.toml: llm.keep_alive must be a duration like \"30m\", \"1h\" or \"-1\" for never (got \"forever\")."
+)]
+#[case(
+    "[llm]\ngpu = \"nvidia\"\n",
+    "sandbox.toml: unknown key 'llm.gpu' (known: enabled, model, models, context, keep_alive)."
+)]
+#[case(
+    "[env]\nOLLAMA_HOST = \"x\"\n",
+    "sandbox.toml: env.OLLAMA_HOST is set by the sandbox; use llm.model instead."
+)]
+#[case(
+    "[env]\nSANDBOX_LLM_URL = \"x\"\n",
+    "sandbox.toml: env.SANDBOX_LLM_URL is set by the sandbox; use llm.model instead."
+)]
 fn invalid_sandbox_toml(#[case] toml: &str, #[case] message: &str) {
     let f = Fixture::new();
     f.write_conf(toml);
@@ -484,4 +516,55 @@ fn missing_sandbox_toml() {
         &r,
         "Could not find the .sandbox folder (with sandbox.toml).",
     );
+}
+
+#[rstest]
+#[case(
+    "[tools]\nnode = true\n",
+    "sandbox.local.toml: only [host] and [llm] can be set here (found 'tools')."
+)]
+#[case(
+    "[desktop]\nmemory = \"1g\"\n",
+    "sandbox.local.toml: only [host] and [llm] can be set here (found 'desktop')."
+)]
+#[case(
+    "[llm]\ngpu = \"intel\"\n",
+    "sandbox.local.toml: llm.gpu must be \"nvidia\", \"amd\" or \"none\" (got \"intel\")."
+)]
+#[case(
+    "[llm]\nmodel = \"a b\"\n",
+    "sandbox.local.toml: llm.model must be an Ollama model tag like \"qwen3.6:27b\" (got \"a b\")."
+)]
+#[case(
+    "[llm]\ncontext = 5\n",
+    "sandbox.local.toml: llm.context must be a whole number from 2048 to 1048576 (got 5)."
+)]
+#[case(
+    "[llm]\nkeep_alive = \"1h\"\n",
+    "sandbox.local.toml: unknown key 'llm.keep_alive' (known: enabled, model, context, gpu)."
+)]
+#[case(
+    "[llm]\nenabled = \"no\"\n",
+    "sandbox.local.toml: llm.enabled must be true or false (got \"no\")."
+)]
+fn invalid_sandbox_local_toml(#[case] toml: &str, #[case] message: &str) {
+    let f = Fixture::new();
+    fs::write(f.dir.join("sandbox.local.toml"), toml).unwrap();
+    for cmd in ["status", "info"] {
+        let r = f.run(&[cmd]);
+        assert_exit(&r, 1);
+        assert_calls(&r, &[]);
+        assert_output(&r, message);
+    }
+}
+
+#[test]
+fn the_local_file_may_have_llm_and_host() {
+    let f = Fixture::new();
+    fs::write(
+        f.dir.join("sandbox.local.toml"),
+        "[host]\nbrowser = false\n[llm]\nenabled = false\ngpu = \"none\"\n",
+    )
+    .unwrap();
+    assert_exit(&f.run(&["info"]), 0);
 }

@@ -22,6 +22,11 @@ networks:
     internal: true
   egress: {}          # proxy -> internet
   ui: {}              # gateway -> published localhost port
+{% if llm %}
+  llm:                # gateway <-> ollama; NO internet route
+    internal: true
+  llm-egress: {}      # ollama -> model registry (downloads started by "sandbox up" / "sandbox llm pull")
+{% endif %}
 
 x-hardened: &hardened
   read_only: true
@@ -76,14 +81,20 @@ services:
       HTTPS_PROXY: http://proxy:3128
       http_proxy: http://proxy:3128
       https_proxy: http://proxy:3128
-      NO_PROXY: localhost,127.0.0.1,::1
-      no_proxy: localhost,127.0.0.1,::1
+      NO_PROXY: localhost,127.0.0.1,::1{{ ",llm" if llm else "" }}
+      no_proxy: localhost,127.0.0.1,::1{{ ",llm" if llm else "" }}
       PUID: {{ host.uid | q }}
       PGID: {{ host.gid | q }}
       {% if desktop.timezone %}
       TZ: {{ desktop.timezone | q }}
       {% endif %}
       SANDBOX_WORKDIR: {{ host.workdir | q }}
+      {% if llm %}
+      SANDBOX_LLM_URL: "http://llm:11434"
+      SANDBOX_LLM_MODEL: {{ llm.model | q }}
+      SANDBOX_LLM_CONTEXT: {{ llm.context | q }}
+      OLLAMA_HOST: "http://llm:11434"
+      {% endif %}
       {% for e in env %}
       {{ e.key | q }}: {{ e.value | q }}
       {% endfor %}
@@ -121,5 +132,65 @@ services:
       retries: 3
       start_period: 180s
 
+{% if llm %}
+  # The local LLM: only the "llm" gateway is reachable from the desktop. It passes inference and read-only
+  # endpoints to ollama and logs token usage; pulling models is left to the sandbox app ("sandbox llm pull").
+  ollama:
+    image: "ollama/ollama:0.40.16{{ "-rocm" if llm.gpu == "amd" else "" }}"
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: "0.0.0.0:11434"
+      OLLAMA_CONTEXT_LENGTH: {{ llm.context | q }}
+      {% if llm.keep_alive %}
+      OLLAMA_KEEP_ALIVE: {{ llm.keep_alive | q }}
+      {% endif %}
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: "q8_0"
+    volumes:
+      - models:/root/.ollama    # machine-wide, shared by all projects, kept by "down -v"
+    networks: [llm, llm-egress]
+    {% if llm.gpu == "nvidia" %}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - {driver: nvidia, count: all, capabilities: [gpu]}
+    {% elif llm.gpu == "amd" %}
+    devices:
+      - "/dev/kfd:/dev/kfd"
+      - "/dev/dri:/dev/dri"
+    {% endif %}
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  llm:
+    <<: *hardened
+    build: ./.state/llm
+    networks: [sandbox, llm]
+    volumes:
+      - llm-usage:/var/log/llm
+    tmpfs:
+      - /tmp
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:11434/api/version"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+{% endif %}
 volumes:
   home:
+{% if llm %}
+  llm-usage:
+  models:
+    external: true
+    name: sandbox-llm-models
+{% endif %}

@@ -15,7 +15,7 @@ pub mod ui;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Command};
-use commands::{lifecycle, maintenance, network};
+use commands::{lifecycle, llm, maintenance, network};
 use docker::Docker;
 use project::Project;
 use ui::Ui;
@@ -85,7 +85,7 @@ fn run_inner(ui: &Ui, args: Vec<String>) -> Result<i32> {
 /// The commands that run after the project is loaded and Docker is checked.
 fn run_docker_command(d: &Docker, command: Command) -> Result<i32> {
     match command {
-        Command::Up { no_open } => lifecycle::up(d, !no_open),
+        Command::Up { no_open, no_pull } => lifecycle::up(d, !no_open, !no_pull),
         Command::Stop => lifecycle::compose_command(d, "Stopping", &["stop"]),
         Command::Down => lifecycle::compose_command(d, "Removing containers", &["down"]),
         Command::Restart => lifecycle::compose_command(d, "Restarting", &["restart"]),
@@ -101,6 +101,7 @@ fn run_docker_command(d: &Docker, command: Command) -> Result<i32> {
         Command::Deny { host } => network::deny(d, &host),
         Command::Blocked => network::blocked(d),
         Command::Reload => network::reload_proxy(d),
+        Command::Llm { command } => llm::run(d, command),
         Command::Rebuild => lifecycle::rebuild(d, false),
         Command::Update => lifecycle::rebuild(d, true),
         Command::ResetHome { yes } => maintenance::reset_home(d, yes),
