@@ -41,7 +41,7 @@ pub struct SyncReport {
 
 impl SyncReport {
     pub fn has_restored_or_updated(&self) -> bool {
-        self.restored.len() > 0 || self.updated.len() > 0
+        !self.restored.is_empty() || !self.updated.is_empty()
     }
 }
 

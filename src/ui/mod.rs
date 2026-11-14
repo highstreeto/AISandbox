@@ -141,7 +141,7 @@ impl Ui {
     pub fn rule(&self, title: &str) {
         let cells = measure_text_width(title);
         let rest = self.width.saturating_sub(cells + 4);
-        println!("{} {} {}", "──", title, "─".repeat(rest));
+        println!("── {} {}", title, "─".repeat(rest));
     }
 
     /// A plain dim line of `─` over the width.
