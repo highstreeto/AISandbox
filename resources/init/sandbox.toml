@@ -34,7 +34,7 @@ memory = "8g"
 # cpus = 4                  # must not exceed the host's core count
 # timezone = "Europe/Vienna"            # default: taken from the host
 # devices = ["/dev/dri:/dev/dri"]       # GPU (Intel/AMD, Linux)
-# security_opt = ["seccomp=unconfined"] # if GUI apps crash
+# security_opt = ["seccomp=unconfined"] # only enable if needed!
 # auth = { user = "me", password = "secret" }   # basic auth for the web desktop
 
 # How "sandbox up" and "sandbox open" show the desktop. Can also be set in
