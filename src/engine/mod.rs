@@ -35,6 +35,14 @@ pub static ENGINE_HASH: LazyLock<String> = LazyLock::new(compute_engine_hash);
 pub struct SyncReport {
     /// Files (path below `.state/`) that were edited by hand and have been restored.
     pub restored: Vec<String>,
+    /// Files (path below `.state/`) that were updated
+    pub updated: Vec<String>,
+}
+
+impl SyncReport {
+    pub fn has_restored_or_updated(&self) -> bool {
+        self.restored.len() > 0 || self.updated.len() > 0
+    }
 }
 
 /// Lower-case hex.
@@ -89,6 +97,8 @@ pub fn sync(state_dir: &Utf8Path) -> Result<SyncReport> {
             }
             if old.files.get(rel) != Some(&current) {
                 report.restored.push(rel.clone());
+            } else {
+                report.updated.push(rel.clone());
             }
         }
         if let Some(parent) = path.parent() {

@@ -55,8 +55,15 @@ pub fn init(ui: &Ui, folder: Option<&str>) -> Result<i32> {
     let state_dir = dir.join(".state");
     write_state_ignore(&state_dir)?;
     load_or_create_id(&state_dir, &project_dir)?;
-    for rel in engine::sync(&state_dir)?.restored {
-        lifecycle::warn_restored(ui, &rel);
+    let sync_result = engine::sync(&state_dir)?;
+    if sync_result.has_restored_or_updated() {
+        ui.rule("Syncing .state/");
+        for path in sync_result.restored {
+            lifecycle::warn_restored(ui, &path);
+        }
+        for path in sync_result.updated {
+            lifecycle::info_updated(ui, &path);
+        }
     }
     ui.success("Wrote .sandbox/.state/ (desktop/ and proxy/ show what the sandbox builds)");
 

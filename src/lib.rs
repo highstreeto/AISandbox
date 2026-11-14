@@ -66,8 +66,16 @@ fn run_inner(ui: &Ui, args: Vec<String>) -> Result<i32> {
             let docker = Docker::new(&project, verbose, ui);
             docker.need_docker()?;
             docker.check_collision()?;
-            for rel in compose::generate(&project)?.restored {
-                lifecycle::warn_restored(ui, &rel);
+
+            let sync_result = compose::generate(&project)?;
+            if sync_result.has_restored_or_updated() {
+                ui.rule("Syncing .state/");
+                for path in sync_result.restored {
+                    lifecycle::warn_restored(ui, &path);
+                }
+                for path in sync_result.updated {
+                    lifecycle::info_updated(ui, &path);
+                }
             }
             run_docker_command(&docker, command)
         }

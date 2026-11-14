@@ -67,6 +67,12 @@ impl Ui {
         Style::new().yellow().apply_to(s).to_string()
     }
 
+    /// `INFO: …` on stderr.
+    pub fn info(&self, message: &str) {
+        let bold = Style::new().bold().for_stderr();
+        eprintln!("{} {}", bold.apply_to("INFO:"), message);
+    }
+
     // --- messages ---
 
     /// `ERROR: …` on stderr.
@@ -135,12 +141,7 @@ impl Ui {
     pub fn rule(&self, title: &str) {
         let cells = measure_text_width(title);
         let rest = self.width.saturating_sub(cells + 4);
-        println!(
-            "{} {} {}",
-            self.yellow("──"),
-            self.yellow(title),
-            self.yellow("─".repeat(rest))
-        );
+        println!("{} {} {}", "──", title, "─".repeat(rest));
     }
 
     /// A plain dim line of `─` over the width.

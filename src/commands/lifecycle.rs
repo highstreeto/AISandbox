@@ -139,6 +139,12 @@ pub fn warn_restored(ui: &Ui, rel: &str) {
     ));
 }
 
+pub fn info_updated(ui: &Ui, rel: &str) {
+    ui.info(&format!(
+        ".state/{rel} was updated to the latest version"
+    ));
+}
+
 /// Image build: docker's own progress output is shown as-is (it can take minutes the first time).
 fn build(d: &Docker, pull: bool) -> Result<()> {
     d.ui.rule(if pull {
