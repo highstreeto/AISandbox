@@ -217,7 +217,7 @@ fn model(project: &Project) -> Model {
     }
 }
 
-/// Bind mounts of the desktop: the project, the read-only .sandbox, the protected .git paths, the shares.
+/// Bind mounts of the desktop: the project, the read-only .sandbox, the read-only .git (protect_git), the shares.
 pub fn mounts(project: &Project) -> Vec<MountModel> {
     let s = &project.settings;
     let wd = &project.work_dir;

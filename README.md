@@ -90,7 +90,7 @@ memory = "8g"
 # cpus = 4
 # timezone = "Europe/Vienna"            # default: the host's
 # devices = ["/dev/dri:/dev/dri"]       # GPU (Intel/AMD, Linux)
-# security_opt = ["seccomp=unconfined"] # if GUI apps crash
+# security_opt = ["seccomp=unconfined"] # only enable if needed!
 # auth = { user = "me", password = "secret" }   # basic auth for the web desktop
 
 [host]

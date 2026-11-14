@@ -431,9 +431,8 @@ fn protect_git_off() {
 }
 
 #[test]
-fn only_existing_git_paths_are_protected() {
+fn the_git_folder_is_protected_only_if_it_exists() {
     let f = Fixture::new();
-    fs::remove_dir(f.project_dir.join(".git").join("hooks")).unwrap();
     assert_eq!(
         binds(&generate_parsed(&f)),
         [project(&f, false), sandbox_dir(&f), git_dir(&f)]

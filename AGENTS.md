@@ -75,5 +75,6 @@ This repository is often developed from inside the sandbox it builds:
 - Network goes through the allowlist proxy. `index.crates.io` / `static.crates.io` may be allowed, `docs.rs` and
   `crates.io` usually are not: read crate sources in `~/.cargo/registry/src`. Only the user can allow hosts (on the host).
 - `.sandbox/` is read-only; with `workspace = "ro"` the whole project is. Then build in a copy and hand the user a patch.
-- `.git/` is read-only; git may report "dubious ownership" (use `git -c safe.directory='*'`).
+- `.git/` is read-only (`protect_git`): no commits, branches or config changes inside; the user commits on the host.
+  Read-only git commands may report "dubious ownership" (use `git -c safe.directory='*'`).
 - There is a `docker` CLI but no daemon: real Docker smoke tests are for the user on the host.
