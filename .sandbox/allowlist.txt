@@ -43,8 +43,8 @@ code.claude.com              # built-in docs lookups
 # objects.githubusercontent.com
 
 # --- .NET / NuGet ------------------------------------------------------------
-api.nuget.org
-globalcdn.nuget.org
+# api.nuget.org
+# globalcdn.nuget.org
 # dot.net
 # builds.dotnet.microsoft.com
 
