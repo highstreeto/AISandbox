@@ -110,7 +110,9 @@ Write versions as text (`"10.0"`, not `10.0`). Mistakes (unknown keys, wrong typ
 are reported with the valid values. `sandbox info` shows what was read.
 
 **Tools** are installed when the image is built. Inside the sandbox, `sandbox-install <tool> [version]` installs one
-for now (lost on rebuild); without arguments it lists the tools and the hosts each one needs.
+for now (lost on rebuild); without arguments it lists the tools and the hosts each one needs. The image has no Docker
+and no C/C++ compiler: `rust = true` brings `build-essential`, otherwise add it under `apt` (e.g. for native npm
+modules).
 
 **Browser** (`[host] browser`): not set / `"default"` = the system browser, `false` = just print the URL, `"firefox"` =
 a program or full path, `["chromium", "--incognito"]` = with arguments (the URL is added last, or replaces `{url}`).

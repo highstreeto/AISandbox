@@ -11,10 +11,21 @@ ENV DEBIAN_FRONTEND=noninteractive \
     DOTNET_NOLOGO=1 \
     RUSTUP_HOME=/usr/local/rustup
 
+# Strip what the base image ships but a sandbox doesn't use: Docker (no daemon here), the apt Rust
+# toolchain and the C/C++ compilers (rust = true brings rustup and build-essential; otherwise add
+# "build-essential" under [tools] apt). Python stays: Selkies and Plasma depend on it.
+# xz-utils and bzip2 would go with the compilers; tarballs still need them.
+RUN apt-get purge -y --autoremove \
+      docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin fuse-overlayfs \
+      cargo rustc gcc g++ cmake \
+ && rm -f /etc/apt/sources.list.d/docker.list /usr/local/bin/dind /usr/local/bin/dockerd-entrypoint.sh \
+ && rm -rf /etc/s6-overlay/s6-rc.d/svc-docker /etc/s6-overlay/s6-rc.d/user/contents.d/svc-docker \
+ && (groupdel docker 2>/dev/null || true)
+
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl wget gnupg git ripgrep jq unzip less nano procps \
-      iputils-ping dnsutils \
+      iputils-ping dnsutils xz-utils bzip2 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY bin/sandbox-install bin/sandbox-llm /usr/local/bin/
