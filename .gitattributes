@@ -1,3 +1,4 @@
 sandbox text=auto eol=lf
 *.cmd text eol=crlf
 resources/** text eol=lf
+install/*.sh text eol=lf

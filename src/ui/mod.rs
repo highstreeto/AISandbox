@@ -36,9 +36,12 @@ impl Ui {
         Self { interactive, width }
     }
 
-    /// How to call this app again, for hints in messages: the launcher in the repository root.
+    /// How to call this app again, for hints in messages: `sandbox` for an installed release, else the launcher in the
+    /// repository root.
     pub fn self_name(&self) -> &'static str {
-        if cfg!(windows) {
+        if crate::commands::upgrade::is_release_build() {
+            "sandbox"
+        } else if cfg!(windows) {
             "sandbox.ps1"
         } else {
             "./sandbox"

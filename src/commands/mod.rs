@@ -4,3 +4,4 @@ pub mod lifecycle;
 pub mod llm;
 pub mod maintenance;
 pub mod network;
+pub mod upgrade;

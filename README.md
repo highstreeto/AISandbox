@@ -17,25 +17,40 @@ see [AGENTS.md](AGENTS.md).
 ## Requirements
 
 - **Docker** (Docker Desktop on Windows/macOS)
-- **Rust** 1.88 or newer ([rustup.rs](https://rustup.rs)). The first run compiles the app (a minute or two); after
-  that it starts instantly.
+- **Rust** 1.88 or newer ([rustup.rs](https://rustup.rs)) only to run the app from this repository or work on it.
+
+## Install
+
+Linux, macOS, WSL (installs to `~/.local/bin`):
+
+```bash
+curl -fsSL https://github.com/highstreeto/AISandbox/releases/latest/download/install.sh | sh
+```
+
+Windows PowerShell (installs to `%LOCALAPPDATA%\Programs\sandbox` and adds it to your user PATH):
+
+```powershell
+irm https://github.com/highstreeto/AISandbox/releases/latest/download/install.ps1 | iex
+```
+
+Both check the download against the release's `SHA256SUMS`. Set `SANDBOX_VERSION=v1.2.3` for a specific release or
+`SANDBOX_INSTALL_DIR` for another folder. Later, `sandbox upgrade` replaces the app with the newest release
+(`sandbox upgrade --check` only looks). The binaries and the changelog are on the
+[releases page](https://github.com/highstreeto/AISandbox/releases).
 
 ## Quick start
 
 ```bash
-./sandbox init [folder]      # create .sandbox/ in a project (default: current directory)
-./sandbox up                 # build, start and open the desktop
+sandbox init [folder]        # create .sandbox/ in a project (default: current directory)
+sandbox up                   # build, start and open the desktop
 ```
 
-Use `sandbox.ps1` instead of `./sandbox` on Windows. The launchers work from any directory and use the `.sandbox`
-folder next to them. For another project, either install the app once and run it inside that project:
+The app looks for `.sandbox/` in the current directory and its parents, so run it inside the project.
 
-```bash
-cargo install --path <path to this repository> --bin sandbox
-```
-
-or run `cargo run --quiet --locked --manifest-path <path to this repository>/Cargo.toml --bin sandbox -- up` from it.
-Without the launcher the app looks for `.sandbox/` in the current directory and its parents.
+**From this repository** (no install, compiled on first run): `./sandbox` (`sandbox.ps1` on Windows) instead of
+`sandbox`. The launchers work from any directory and use the `.sandbox` folder next to them. `cargo install --path
+<path to this repository> --bin sandbox` installs such a build; it updates with `git pull` and reinstalling, not with
+`sandbox upgrade`.
 
 `init` creates `sandbox.toml`, `allowlist.txt` and a `.gitignore`. Existing files are kept, so it is safe to run again.
 The first `up` builds the image (several minutes), waits for KDE and opens the desktop. Accept the self-signed
@@ -53,6 +68,7 @@ certificate.
 | `allow` / `deny <host>` | Allow or block a host and reload the proxy |
 | `allowlist [-a]` / `blocked` / `reload` | Allowed hosts (`-a`: also the available ones) · blocked attempts · reload after editing |
 | `rebuild` / `update` | After changing `[tools]` · newest versions of everything |
+| `upgrade [version]` | Replace this app with the newest (or the given) release · `--check` only reports (exit 1 if newer) |
 | `reset-home [-y]` | Wipe the persistent home (logins, IDE settings) |
 | `init [folder]` / `info` | Create `.sandbox/` · show what was read from `sandbox.toml` |
 | `llm status\|pull\|rm\|usage` | The [local LLM](#local-llm) |
@@ -205,8 +221,9 @@ the wallet isn't available. If something fails to load, check `./sandbox blocked
 |---|---|
 | Blank page on first open | Reload; KDE was still starting |
 | "Docker is not running" | Start Docker Desktop or the Docker service |
-| "cargo not found" / build error | Install Rust 1.88 or newer |
-| "Could not find the .sandbox folder" | Use the launchers, or run inside a project with `.sandbox/` (or `init` one) |
+| "cargo not found" / build error | Only the repository launchers need Rust (1.88 or newer); or [install](#install) a release |
+| "Could not find the .sandbox folder" | Run inside a project with `.sandbox/` (or `init` one), or use the launchers |
+| "built from source and can't upgrade itself" | `git pull` (and reinstall), or [install](#install) a release |
 | "Another project already uses the container group" | Two projects share a folder name: set `name` under `[project]` |
 | "… was edited by hand and has been restored" | Files in `.state/` are generated; change `sandbox.toml` |
 | ".sandbox/engine/ is no longer used" | Old layout: check it for your own edits, then delete `.sandbox/engine/`, `.sandbox/README.md` and `.sandbox/.gitattributes` |

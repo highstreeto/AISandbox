@@ -477,6 +477,20 @@ fn info_does_not_call_docker() {
     );
 }
 
+/// The test binary is built from source, so it refuses to replace itself, without touching Docker or the project.
+#[test]
+fn upgrade_refuses_in_a_build_from_source() {
+    let f = Fixture::new();
+    let r = f.run(&["upgrade"]);
+    assert_exit(&r, 1);
+    assert_calls(&r, &[]);
+    assert!(!f.generated_file().exists());
+    assert_output(
+        &r,
+        "built from source and can't upgrade itself. Update it with git pull",
+    );
+}
+
 #[test]
 fn info_shows_the_browser_and_where_it_is_set() {
     let f = Fixture::new();

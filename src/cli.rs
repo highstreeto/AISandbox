@@ -114,6 +114,14 @@ pub enum Command {
     },
     /// Show the project identity, settings and configured tools
     Info,
+    /// Upgrade this app to the newest release (`update` refreshes the tools in the image)
+    Upgrade {
+        /// Install this version (e.g. 1.2.3) instead of the newest; may be older
+        version: Option<String>,
+        /// Only report whether a newer version exists (exit code 1 if so)
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
