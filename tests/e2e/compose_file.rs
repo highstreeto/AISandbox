@@ -374,6 +374,8 @@ fn shipped_sandbox_toml_renders_all_tools() {
         [
             "INSTALL_CLAUDE",
             "INSTALL_CLAUDE_CODE",
+            "INSTALL_OPENCODE",
+            "INSTALL_OPENCODE_DESKTOP",
             "INSTALL_DOTNET",
             "INSTALL_NODE",
             "INSTALL_BUN",

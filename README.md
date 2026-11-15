@@ -91,6 +91,8 @@ protect_git = true          # if .git/ should be readonly
 [tools]                     # true = default version, false = skip, "x" = version, [..] = several
 claude      = false         # Claude Desktop app
 claude_code = false         # Claude Code CLI
+opencode    = false         # OpenCode CLI v2, e.g. "2.2.6"
+opencode_desktop = false    # OpenCode desktop app (beta on Linux)
 dotnet      = false         # e.g. ["10.0", "8.0"]
 node        = false         # e.g. 24
 bun         = false

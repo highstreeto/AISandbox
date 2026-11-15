@@ -43,6 +43,10 @@ ARG INSTALL_CLAUDE=true
 RUN sandbox-install claude "${INSTALL_CLAUDE}"
 ARG INSTALL_CLAUDE_CODE=false
 RUN sandbox-install claude-code "${INSTALL_CLAUDE_CODE}"
+ARG INSTALL_OPENCODE=false
+RUN sandbox-install opencode "${INSTALL_OPENCODE}"
+ARG INSTALL_OPENCODE_DESKTOP=false
+RUN sandbox-install opencode-desktop "${INSTALL_OPENCODE_DESKTOP}"
 ARG INSTALL_DOTNET=false
 RUN sandbox-install dotnet "${INSTALL_DOTNET}"
 ARG INSTALL_NODE=false

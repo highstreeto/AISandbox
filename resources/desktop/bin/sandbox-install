@@ -17,8 +17,8 @@ if [ $# -eq 0 ]; then
   echo
   for f in "$TOOLS"/*.sh; do
     n=$(basename "$f" .sh); [ "$n" = _lib ] && continue
-    printf '  %-12s %s\n' "$n" "$(sed -n 's/^# ABOUT: //p' "$f")"
-    printf '  %-12s hosts: %s\n' "" "$(sed -n 's/^# HOSTS: //p' "$f")"
+    printf '  %-17s %s\n' "$n" "$(sed -n 's/^# ABOUT: //p' "$f")"
+    printf '  %-17s hosts: %s\n' "" "$(sed -n 's/^# HOSTS: //p' "$f")"
   done
   exit 0
 fi
