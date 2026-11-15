@@ -30,7 +30,7 @@ conventional_commits = true
 filter_unconventional = false
 filter_commits = false
 tag_pattern = "v[0-9]+\\.[0-9]+\\.[0-9]+"
-sort_commits = "oldest"
+sort_commits = "newest"
 # The `<!-- n -->` prefixes only fix the order of the sections; `striptags` removes them.
 commit_parsers = [
     { message = "^Merge ", skip = true },
