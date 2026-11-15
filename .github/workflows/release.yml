@@ -100,7 +100,13 @@ jobs:
           [[ "${{ matrix.target }}" == *windows* ]] && exe=sandbox.exe
           bin="target/${{ matrix.target }}/release/$exe"
           if [ "${{ matrix.smoke }}" = true ]; then
-            "$bin" --version | tee /dev/stderr | grep -F "sandbox $SANDBOX_RELEASE_VERSION+"
+            # No `tee /dev/stderr`: Git Bash on the Windows runners has no /dev/stderr.
+            version=$("$bin" --version)
+            echo "$version"
+            case "$version" in
+              "sandbox $SANDBOX_RELEASE_VERSION+"*) ;;
+              *) echo "::error::expected sandbox $SANDBOX_RELEASE_VERSION+<commit>, got: $version"; exit 1 ;;
+            esac
           fi
           mkdir -p dist pkg
           cp "$bin" README.md LICENSE pkg/
