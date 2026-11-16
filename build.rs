@@ -28,7 +28,6 @@ fn main() {
         .filter(|v| !v.is_empty());
     let version = release
         .clone()
-        .or_else(latest_tag)
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
     let full = match commit() {
         Some(sha) => format!("{version}+{sha}"),
@@ -46,18 +45,6 @@ fn main() {
 /// The commit of HEAD, or `None` without git (a source tarball, or git refusing the folder).
 fn commit() -> Option<String> {
     git(&["rev-parse", "HEAD"])
-}
-
-/// The newest release tag reachable from HEAD without its `v`, e.g. `1.2.3`.
-fn latest_tag() -> Option<String> {
-    git(&[
-        "describe",
-        "--tags",
-        "--abbrev=0",
-        "--match",
-        "v[0-9]*.[0-9]*.[0-9]*",
-    ])
-    .map(|tag| tag.trim_start_matches('v').to_string())
 }
 
 fn git(args: &[&str]) -> Option<String> {
