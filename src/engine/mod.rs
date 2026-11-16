@@ -12,6 +12,7 @@
 
 pub mod embedded;
 pub mod manifest;
+pub mod compose;
 
 use crate::VERSION;
 use crate::paths;

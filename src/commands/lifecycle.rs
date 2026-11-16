@@ -2,9 +2,9 @@
 //! logs.
 
 use super::llm;
-use crate::compose;
 use crate::config::BrowserSetting;
 use crate::docker::Docker;
+use crate::engine::compose;
 use crate::process::{self, ProcResult};
 use crate::project::Project;
 use crate::ui::Ui;

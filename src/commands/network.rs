@@ -1,6 +1,6 @@
 //! The proxy's allowlist: allow, deny, allowlist, blocked, reload.
 
-use crate::allowlist::{AllowOutcome, Allowlist};
+use crate::config::allowlist::{AllowOutcome, Allowlist};
 use crate::docker::Docker;
 use crate::project::Project;
 use crate::ui::{Ui, table};

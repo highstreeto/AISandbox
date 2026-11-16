@@ -1,6 +1,7 @@
 //! Reads `sandbox.toml` (and the optional `sandbox.local.toml`). Every key is known and typed: unknown keys, wrong types and invalid values are errors.
 
 pub mod reader;
+pub mod allowlist;
 
 use crate::paths::{self, full_path};
 use anyhow::{Result, anyhow};

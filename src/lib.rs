@@ -1,9 +1,7 @@
 //! AI Sandbox control app: a desktop for a project, reachable only through an allowlist proxy.
 
-pub mod allowlist;
 pub mod cli;
 pub mod commands;
-pub mod compose;
 pub mod config;
 pub mod docker;
 pub mod engine;
@@ -17,6 +15,7 @@ use clap::Parser;
 use cli::{Cli, Command};
 use commands::{lifecycle, llm, maintenance, network, upgrade};
 use docker::Docker;
+use engine::compose;
 use project::Project;
 use ui::Ui;
 
