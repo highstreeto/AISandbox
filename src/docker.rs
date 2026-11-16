@@ -30,6 +30,16 @@ impl<'a> Docker<'a> {
         }
     }
 
+    /// Creates the models volume (idempotent). Compose uses it as an external volume and doesn't create it.
+    pub fn create_volume<S: AsRef<str>>(&self, volume: S) -> ProcResult {
+        process::capture(
+            self.ui,
+            self.verbose,
+            "docker",
+            &["volume", "create", volume.as_ref()],
+        )
+    }
+
     /// Runs docker compose with captured output (for spinners, tables and error panels).
     pub fn compose<S: AsRef<str>>(&self, args: &[S]) -> ProcResult {
         let mut full = vec!["--ansi".to_string(), "never".to_string()];

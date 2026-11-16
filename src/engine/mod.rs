@@ -10,9 +10,9 @@
 //! The manifest is written last, so a crash halfway is repaired by the next run: every step is idempotent.
 //! This module prints nothing: [`sync`] returns what was restored and the caller shows the warnings.
 
+pub mod compose;
 pub mod embedded;
 pub mod manifest;
-pub mod compose;
 
 use crate::VERSION;
 use crate::paths;

@@ -2,6 +2,7 @@
 //! logs.
 
 use super::llm;
+use crate::commands::llm::MODELS_VOLUME;
 use crate::config::BrowserSetting;
 use crate::docker::Docker;
 use crate::engine::compose;
@@ -17,7 +18,7 @@ const CLAUDE_SCRIPT: &str = "command -v claude >/dev/null || { echo \"Claude Cod
 
 pub fn up(d: &Docker, open_browser: bool, pull_models: bool) -> Result<i32> {
     build(d, false)?;
-    start_llm_volume(d)?;
+    ensure_llm_volume(d)?;
     start_and_wait(d, true)?;
     if pull_models {
         llm::pull_missing(d)?;
@@ -43,7 +44,7 @@ pub fn up(d: &Docker, open_browser: bool, pull_models: bool) -> Result<i32> {
 
 pub fn rebuild(d: &Docker, pull: bool) -> Result<i32> {
     build(d, pull)?;
-    start_llm_volume(d)?;
+    ensure_llm_volume(d)?;
     start_and_wait(d, false)?;
     llm::pull_missing(d)?;
     d.ui.success("Rebuilt and running.");
@@ -51,9 +52,13 @@ pub fn rebuild(d: &Docker, pull: bool) -> Result<i32> {
 }
 
 /// The models volume is external: it has to exist before compose starts the stack.
-fn start_llm_volume(d: &Docker) -> Result<()> {
+fn ensure_llm_volume(d: &Docker) -> Result<()> {
     if d.project.settings.llm.is_some() {
-        llm::create_volume(d)?;
+        let res = d.create_volume(MODELS_VOLUME);
+        if res.exit_code != 0 {
+            d.ui.show_output("docker volume create", &res);
+            bail!("Could not create the volume {MODELS_VOLUME} for the models.");
+        }
     }
     Ok(())
 }

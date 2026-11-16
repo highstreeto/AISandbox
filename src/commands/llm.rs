@@ -7,7 +7,7 @@
 use crate::cli::LlmCommand;
 use crate::config::{self, LlmSettings};
 use crate::docker::Docker;
-use crate::process::{self, ProcResult};
+use crate::process::ProcResult;
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -42,21 +42,6 @@ fn need_llm<'a>(d: &'a Docker) -> Result<&'a LlmSettings> {
             config::DEFAULT_LLM_MODEL
         ),
     }
-}
-
-/// Creates the models volume (idempotent). Compose uses it as an external volume and doesn't create it.
-pub fn create_volume(d: &Docker) -> Result<()> {
-    let r = process::capture(
-        d.ui,
-        d.verbose,
-        "docker",
-        &["volume", "create", MODELS_VOLUME],
-    );
-    if r.exit_code != 0 {
-        d.ui.show_output("docker volume create", &r);
-        bail!("Could not create the volume {MODELS_VOLUME} for the models.");
-    }
-    Ok(())
 }
 
 /// `ollama` must be running for anything that talks to it.
