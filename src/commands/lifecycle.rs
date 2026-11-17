@@ -191,7 +191,7 @@ fn build(rt: &dyn Runtime, pull: bool) -> Result<()> {
 
 /// `up -d --wait` in the background while a live table shows each service's state and health (on a terminal).
 fn start_and_wait(rt: &dyn Runtime, tolerate_unhealthy: bool) -> Result<()> {
-    let up: ProcResult = if rt.ui().interactive {
+    let up: ProcResult = if rt.ui().interactive && !rt.ctx().verbose {
         live_up(rt)?
     } else {
         rt.compose_up()
