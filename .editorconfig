@@ -11,7 +11,7 @@ trim_trailing_whitespace = true
 [*.{json,yml,toml}]
 indent_size = 2
 
-[*.cmd]
+[*.{cmd,ps1}]
 end_of_line = crlf
 
 [*.rs]
