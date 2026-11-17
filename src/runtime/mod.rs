@@ -93,12 +93,16 @@ pub trait Runtime: Sync {
     // --- host level ---
 
     /// Creates a volume (idempotent).
-    fn create_volume(&self, name: &str) -> ProcResult {
+    fn volume_create(&self, name: &str) -> ProcResult {
         self.run(&["volume", "create", name])
     }
 
-    fn remove_volume(&self, name: &str) -> ProcResult {
+    fn volume_remove(&self, name: &str) -> ProcResult {
         self.run(&["volume", "rm", name])
+    }
+
+    fn volume_exits(&self, name: &str) -> bool {
+        self.run(&["volume", "inspect", name]).exit_code == 0
     }
 
     /// The `sandbox.id` labels of every container in this project's compose group.

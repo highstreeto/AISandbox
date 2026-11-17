@@ -91,7 +91,7 @@ pub fn reset_home(rt: &dyn Runtime, yes: bool) -> Result<i32> {
     lifecycle::compose_command(rt, "Removing containers", "down", |rt| rt.compose_down())?;
     let vol = format!("{}_home", rt.project().name);
     let r = ui.spin(&format!("Removing volume {vol}…"), || {
-        rt.remove_volume(&vol)
+        rt.volume_remove(&vol)
     });
     if r.exit_code != 0 {
         ui.show_output(&format!("{} volume rm", rt.program()), &r);
