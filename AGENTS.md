@@ -13,7 +13,8 @@ What a coding agent needs to change this repository. The user-facing docs are in
 | `src/compose.rs` | Renders `resources/compose.yml.j2` (MiniJinja) into `.state/compose.yml` |
 | `src/engine/` | Writes the embedded `resources/` into `.state/desktop/`,`.state/proxy/`,`.state/llm/`; `manifest.rs` tracks what was written|
 | `src/project.rs` | Finds `.sandbox/`, the stable id, old-layout warnings (`engine/`, `sandbox.yml`) |
-| `src/docker.rs`, `src/process.rs` | Running `docker compose` and other programs |
+| `src/runtime/` | The container runtime: `trait Runtime` (`mod.rs`: every container operation the commands use, mostly default methods), `docker.rs`, `ps.rs` (`compose ps` JSON) |
+| `src/process.rs` | Running programs (captured or attached), the browser, the host user's ids |
 | `src/allowlist.rs` | Line-based edits of `allowlist.txt` that keep comments and groups |
 | `src/ui/` | Terminal output (panels, tables) |
 | `resources/` | The engine, compiled into the binary: compose template, Dockerfiles, tool scripts, proxy and LLM gateway config, `init/` templates |

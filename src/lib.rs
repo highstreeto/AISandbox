@@ -3,20 +3,20 @@
 pub mod cli;
 pub mod commands;
 pub mod config;
-pub mod docker;
 pub mod engine;
 pub mod paths;
 pub mod process;
 pub mod project;
+pub mod runtime;
 pub mod ui;
 
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Command};
 use commands::{lifecycle, llm, maintenance, network, upgrade};
-use docker::Docker;
 use engine::compose;
 use project::Project;
+use runtime::{Ctx, Docker, Runtime};
 use ui::Ui;
 
 /// The app version, `<version>+<commit>` when built from git (see `build.rs`).
@@ -63,9 +63,12 @@ fn run_inner(ui: &Ui, args: Vec<String>) -> Result<i32> {
         Command::Upgrade { version, check } => upgrade::run(ui, check, version.as_deref()),
         command => {
             let project = Project::load(ui)?;
-            let docker = Docker::new(&project, verbose, ui);
-            docker.need_docker()?;
-            docker.check_collision()?;
+            let rt = Docker::new(Ctx {
+                project: &project,
+                verbose,
+                ui,
+            });
+            runtime::need_runtime(&rt)?;
 
             let sync_result = compose::generate(&project)?;
             if sync_result.has_restored_or_updated() {
@@ -77,34 +80,38 @@ fn run_inner(ui: &Ui, args: Vec<String>) -> Result<i32> {
                     lifecycle::info_updated(ui, &path);
                 }
             }
-            run_docker_command(&docker, command)
+            run_runtime_command(&rt, command)
         }
     }
 }
 
-/// The commands that run after the project is loaded and Docker is checked.
-fn run_docker_command(d: &Docker, command: Command) -> Result<i32> {
+/// The commands that run after the project is loaded and the container runtime is checked.
+fn run_runtime_command(rt: &dyn Runtime, command: Command) -> Result<i32> {
     match command {
-        Command::Up { no_open, no_pull } => lifecycle::up(d, !no_open, !no_pull),
-        Command::Stop => lifecycle::compose_command(d, "Stopping", &["stop"]),
-        Command::Down => lifecycle::compose_command(d, "Removing containers", &["down"]),
-        Command::Restart => lifecycle::compose_command(d, "Restarting", &["restart"]),
-        Command::Status => lifecycle::status(d),
-        Command::Open => lifecycle::open(d),
-        Command::Shell => lifecycle::shell(d),
+        Command::Up { no_open, no_pull } => lifecycle::up(rt, !no_open, !no_pull),
+        Command::Stop => lifecycle::compose_command(rt, "Stopping", "stop", |rt| rt.compose_stop()),
+        Command::Down => {
+            lifecycle::compose_command(rt, "Removing containers", "down", |rt| rt.compose_down())
+        }
+        Command::Restart => {
+            lifecycle::compose_command(rt, "Restarting", "restart", |rt| rt.compose_restart(&[]))
+        }
+        Command::Status => lifecycle::status(rt),
+        Command::Open => lifecycle::open(rt),
+        Command::Shell => lifecycle::shell(rt),
         Command::Logs {
             service,
             tail,
             no_follow,
-        } => lifecycle::logs(d, &service, tail, !no_follow),
-        Command::Allow { host } => network::allow(d, &host),
-        Command::Deny { host } => network::deny(d, &host),
-        Command::Blocked => network::blocked(d),
-        Command::Reload => network::reload_proxy(d),
-        Command::Llm { command } => llm::run(d, command),
-        Command::Rebuild => lifecycle::rebuild(d, false),
-        Command::Update => lifecycle::rebuild(d, true),
-        Command::ResetHome { yes } => maintenance::reset_home(d, yes),
+        } => lifecycle::logs(rt, &service, tail, !no_follow),
+        Command::Allow { host } => network::allow(rt, &host),
+        Command::Deny { host } => network::deny(rt, &host),
+        Command::Blocked => network::blocked(rt),
+        Command::Reload => network::reload_proxy(rt),
+        Command::Llm { command } => llm::run(rt, command),
+        Command::Rebuild => lifecycle::rebuild(rt, false),
+        Command::Update => lifecycle::rebuild(rt, true),
+        Command::ResetHome { yes } => maintenance::reset_home(rt, yes),
         // handled before a project is loaded
         Command::Claude { .. }
         | Command::Init { .. }

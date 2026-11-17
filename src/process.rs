@@ -1,4 +1,4 @@
-//! Child processes (captured, or attached to this terminal), `docker` lookup, the browser, the host user's ids.
+//! Child processes (captured, or attached to this terminal), program lookup, the browser, the host user's ids.
 
 use crate::config::BrowserSetting;
 use crate::ui::Ui;
@@ -28,9 +28,21 @@ impl ProcResult {
 
 /// Runs a process with its output captured and no input. A program that can't be started gives exit code 127.
 pub fn capture<S: AsRef<str>>(ui: &Ui, verbose: bool, file: &str, args: &[S]) -> ProcResult {
+    capture_env(ui, verbose, file, args, &[])
+}
+
+/// [`capture`] with extra environment variables for the child.
+pub fn capture_env<S: AsRef<str>>(
+    ui: &Ui,
+    verbose: bool,
+    file: &str,
+    args: &[S],
+    envs: &[(&str, &str)],
+) -> ProcResult {
     trace(ui, verbose, file, args);
     let output = Command::new(file)
         .args(args.iter().map(AsRef::as_ref))
+        .envs(envs.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -52,10 +64,22 @@ pub fn capture<S: AsRef<str>>(ui: &Ui, verbose: bool, file: &str, args: &[S]) ->
 /// Attached to the terminal. Ctrl+C goes to the child (`logs -f`, `shell`); this app stays alive and returns the
 /// child's exit code.
 pub fn interactive<S: AsRef<str>>(ui: &Ui, verbose: bool, file: &str, args: &[S]) -> Result<i32> {
+    interactive_env(ui, verbose, file, args, &[])
+}
+
+/// [`interactive`] with extra environment variables for the child.
+pub fn interactive_env<S: AsRef<str>>(
+    ui: &Ui,
+    verbose: bool,
+    file: &str,
+    args: &[S],
+    envs: &[(&str, &str)],
+) -> Result<i32> {
     trace(ui, verbose, file, args);
     keep_alive_on_ctrl_c();
     let status = Command::new(file)
         .args(args.iter().map(AsRef::as_ref))
+        .envs(envs.iter().copied())
         .status();
     match status {
         Ok(s) => Ok(exit_code(s)),

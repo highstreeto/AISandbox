@@ -2,11 +2,10 @@
 
 use super::lifecycle;
 use crate::config::{self, BrowserSetting, FILE_NAME, Settings};
-use crate::docker::Docker;
 use crate::engine::{self, embedded};
 use crate::paths::{self, full_path};
-use crate::process;
 use crate::project::{Project, check_old_layout, load_or_create_id, write_state_ignore};
+use crate::runtime::Runtime;
 use crate::ui::Ui;
 use anyhow::{Result, bail};
 use console::measure_text_width;
@@ -75,27 +74,27 @@ pub fn init(ui: &Ui, folder: Option<&str>) -> Result<i32> {
     Ok(0)
 }
 
-pub fn reset_home(d: &Docker, yes: bool) -> Result<i32> {
-    let ui = d.ui;
+pub fn reset_home(rt: &dyn Runtime, yes: bool) -> Result<i32> {
+    let ui = rt.ui();
     if !yes {
         if !ui.interactive {
             bail!("Refusing to delete the home volume without confirmation (use --yes).");
         }
         let question = format!(
             "Delete the home volume of {} (logins, IDE settings)?",
-            ui.bold(&d.project.name)
+            ui.bold(&rt.project().name)
         );
         if !ui.confirm(&question) {
             return Ok(0);
         }
     }
-    lifecycle::compose_command(d, "Removing containers", &["down"])?;
-    let vol = format!("{}_home", d.project.name);
+    lifecycle::compose_command(rt, "Removing containers", "down", |rt| rt.compose_down())?;
+    let vol = format!("{}_home", rt.project().name);
     let r = ui.spin(&format!("Removing volume {vol}…"), || {
-        process::capture(ui, d.verbose, "docker", &["volume", "rm", &vol])
+        rt.remove_volume(&vol)
     });
     if r.exit_code != 0 {
-        ui.show_output("docker volume rm", &r);
+        ui.show_output(&format!("{} volume rm", rt.program()), &r);
         bail!("Could not remove volume {vol}.");
     }
     ui.success(&format!("Home volume {vol} deleted."));
