@@ -40,7 +40,14 @@ impl Runtime for Docker<'_> {
             bail!(self.not_running_message());
         }
         Ok(RuntimeInfo {
+            kind: "docker",
             version: r.stdout.trim().to_string(),
+            rootless: false,
         })
+    }
+
+    fn gpu_hint(&self) -> &'static str {
+        "Linux: install the NVIDIA Container Toolkit (AMD: the ROCm driver). \
+         Windows: use Docker Desktop with the WSL2 backend and a current NVIDIA driver for Windows."
     }
 }

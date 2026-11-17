@@ -7,7 +7,7 @@ use crate::config::BrowserSetting;
 use crate::engine::compose;
 use crate::process::{self, ProcResult};
 use crate::project::Project;
-use crate::runtime::{self, Ctx, Docker, Runtime};
+use crate::runtime::{self, Ctx, Runtime};
 use crate::ui::Ui;
 use anyhow::{Result, bail};
 use console::{Color, Term};
@@ -17,6 +17,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const CLAUDE_SCRIPT: &str = "command -v claude >/dev/null || { echo \"Claude Code CLI not installed: set claude_code under [tools] in sandbox.toml and rebuild.\"; exit 1; }; exec claude \"$@\"";
 
 pub fn up(rt: &dyn Runtime, open_browser: bool, pull_models: bool) -> Result<i32> {
+    rt.check_before_up()?;
     build(rt, false)?;
     ensure_llm_volume(rt)?;
     start_and_wait(rt, true)?;
@@ -43,6 +44,7 @@ pub fn up(rt: &dyn Runtime, open_browser: bool, pull_models: bool) -> Result<i32
 }
 
 pub fn rebuild(rt: &dyn Runtime, pull: bool) -> Result<i32> {
+    rt.check_before_up()?;
     build(rt, pull)?;
     ensure_llm_volume(rt)?;
     start_and_wait(rt, false)?;
@@ -134,13 +136,13 @@ pub fn shell(rt: &dyn Runtime) -> Result<i32> {
 /// runs before the command line is parsed (so `--help`, `-v` and `--` reach claude).
 pub fn claude(ui: &Ui, verbose: bool, args: &[String]) -> Result<i32> {
     let project = Project::load(ui)?;
-    let rt = Docker::new(Ctx {
+    let rt = runtime::select(Ctx {
         project: &project,
         verbose,
         ui,
-    });
-    runtime::need_runtime(&rt)?;
-    for path in compose::generate(&project)?.restored {
+    })?;
+    let info = runtime::need_runtime(rt.as_ref())?;
+    for path in compose::generate(&project, &info)?.restored {
         warn_restored(ui, &path);
     }
     let mut command = vec![

@@ -163,10 +163,9 @@ pub fn gpu_hint(rt: &dyn Runtime, up: &ProcResult) -> Option<String> {
         return None;
     }
     Some(format!(
-        "The local LLM could not get the {} GPU. Linux: install the NVIDIA Container Toolkit (AMD: the ROCm driver). \
-         Windows: use Docker Desktop with the WSL2 backend and a current NVIDIA driver for Windows. \
-         To run on the CPU instead (slow), set gpu = \"none\" under [llm] in {}.",
+        "The local LLM could not get the {} GPU. {} To run on the CPU instead (slow), set gpu = \"none\" under [llm] in {}.",
         llm.gpu.name(),
+        rt.gpu_hint(),
         config::LOCAL_FILE_NAME
     ))
 }

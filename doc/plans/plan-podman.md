@@ -1,6 +1,6 @@
 # Podman support (default when both are installed)
 
-> **Status:** planned.
+> **Status:** implemented; not yet tried on a real Podman host (no Podman where it was written). See *As built*.
 
 ## Context
 `sandbox` drives everything through the `docker` CLI: `docker compose`, `docker info`, `docker ps`, and `docker volume`. Most of that is in `src/docker.rs`; two `volume` calls are in `src/commands/maintenance.rs:95` and `lifecycle.rs`. We want Podman to work as well, and to be chosen automatically when it is installed (even if Docker is too).
@@ -111,3 +111,44 @@ Add `host.runtime` (from `Runtime::template_name()`) to the template context and
 
 ## Critical files
 `src/docker.rs` → `src/runtime/{mod,docker,podman,ps}.rs`, `src/lib.rs`, `src/config/mod.rs`, `src/engine/compose.rs`, `resources/compose.yml.j2`, `src/commands/{lifecycle,maintenance,network,llm}.rs`, `resources/init/sandbox.toml`, `tests/e2e/support.rs`, `tests/fake_docker/main.rs`, README.md, AGENTS.md.
+
+## As built
+
+Everything above is implemented, in two commits: `refactor: move docker.rs into runtime/ behind a Runtime trait` (Docker
+only, every existing e2e test unchanged and green) and `feat: support Podman as container runtime`. Differences and
+details worth knowing:
+
+- **Trait.** Besides the operations listed above, it has `compose_exec_attached` (`llm pull` with Ollama's progress),
+  and the plumbing the defaults are built on: `run` (`<program> <args>`), `compose` (captured), `compose_attached`,
+  `compose_base`, and the hooks `captured_flags`, `env`, `captured_env`, `not_running_message`. `select` returns a
+  `Box<dyn Runtime + 'a>`; `need_runtime` returns the `RuntimeInfo` (`kind`, `version`, `rootless`) that
+  `engine::compose::generate` now takes.
+- **NVIDIA check.** Not inside `compose_up` but a separate hook `check_before_up`, called at the start of `up` and
+  `rebuild`, so a missing CDI spec stops the command before a long image build. Linux only: `nvidia-ctk cdi list` must
+  list `nvidia.com/gpu=all`; without `nvidia-ctk`, any spec under `/etc/cdi` or `/var/run/cdi` naming
+  `nvidia.com/gpu` counts. Nothing is installed.
+- **Colours / banner.** Podman gets no `--ansi never` (podman-compose doesn't know it). Captured calls set
+  `COMPOSE_ANSI=never` and `NO_COLOR=1` instead, and every call sets `PODMAN_COMPOSE_WARNING_LOGS=false` (no
+  "Executing external compose provider" banner). `process::capture_env` / `interactive_env` were added for this.
+- **Rootless.** `podman info --format "{{.Version.Version}} {{.Host.Security.Rootless}}"`. Only rootless Podman gets
+  `userns_mode: "keep-id"`, together with `user: "0:0"`, because keep-id would otherwise start the container as the
+  host user and the image's init must start as root (it then switches to PUID/PGID, the host ids). Rootful Podman
+  rejects keep-id.
+- **SELinux.** `.:/sandbox:ro,z` and `bind: {selinux: z}` on every desktop bind mount, for Podman only. This relabels
+  the project folder and every `[[share]]` on SELinux hosts, so don't share system folders or the whole home.
+- **host-gateway.** Unchanged (`host.docker.internal:host-gateway`); it needs a Podman that understands
+  `host-gateway` (5.x). No version check.
+- **Docker output is byte-identical.** The compose file, the calls and the messages, except "Docker is not installed."
+  which now names where Docker was chosen (`(SANDBOX_RUNTIME=docker)`, `(runtime = "docker" in sandbox.local.toml)`).
+  With `auto` and neither installed: "Neither Podman nor Docker is installed."
+- **`info`.** A **Runtime** row with the runtime and why (`Podman (auto)`, `Docker (SANDBOX_RUNTIME=docker)`,
+  `… : not installed`). No version: `info` runs no container commands.
+- **Tests.** The fixture links the fake as `podman` and `nvidia-ctk` in a second folder and sets
+  `SANDBOX_RUNTIME=docker` unless a test chooses (`RunOpts::runtime`). `tests/e2e/runtime_select.rs` (20 tests) covers
+  the selection rules, Podman calls (`status`, `up`, `reset-home`), podman-compose's `ps` JSON, the rootless and
+  rootful compose file, the CDI device and check (Linux only), and the `info` row. Unit tests: `[host] runtime`
+  parsing, podman `ps` entries.
+- **Not verified on a real host.** Worth checking first: `podman compose` with docker-compose as provider (`up --wait`,
+  `port`, `exec -T`), then with podman-compose, which may not support `--project-directory`, `--wait` or
+  `port`/`ps --format json` the way docker-compose does; file ownership in the project after the agent writes files;
+  the CDI GPU in Ollama.

@@ -22,6 +22,11 @@ pub fn sorted(services: Result<Vec<ServiceState>>) -> Result<Vec<ServiceState>> 
 /// Reads the output of `docker compose ps --format json`: newer compose prints one JSON object per line, older
 /// versions a single array.
 pub fn parse_ps(json: &str) -> Result<Vec<ServiceState>> {
+    Ok(parse_entries(json)?.iter().map(to_state).collect())
+}
+
+/// The JSON objects of a `ps --format json` output: one per line, or one array.
+pub fn parse_entries(json: &str) -> Result<Vec<serde_json::Value>> {
     let text = json.trim();
     let docs: Vec<&str> = if text.starts_with('[') {
         vec![text]
@@ -34,14 +39,15 @@ pub fn parse_ps(json: &str) -> Result<Vec<ServiceState>> {
     let mut result = Vec::new();
     for d in docs {
         match serde_json::from_str::<serde_json::Value>(d)? {
-            serde_json::Value::Array(items) => result.extend(items.iter().map(to_state)),
-            other => result.push(to_state(&other)),
+            serde_json::Value::Array(items) => result.extend(items),
+            other => result.push(other),
         }
     }
     Ok(result)
 }
 
-fn to_state(e: &serde_json::Value) -> ServiceState {
+/// One entry of compose's own JSON.
+pub fn to_state(e: &serde_json::Value) -> ServiceState {
     ServiceState {
         service: text(e, "Service"),
         state: text(e, "State"),

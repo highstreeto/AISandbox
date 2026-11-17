@@ -47,6 +47,7 @@ memory = "8g"
 # browser = "firefox"                 # a program on PATH, or a full path
 # browser = ["chromium", "--incognito"]   # program + arguments; the address is added last
 # browser = ["chrome", "--app={url}"]     # {url} (once) puts the address elsewhere
+# runtime = "auto"     # Podman if installed, else Docker; or "podman" / "docker" (better in sandbox.local.toml)
 
 # A local LLM in its own container (Ollama), without installing anything on this machine
 # but Docker. A model (or enabled = true) turns it on; "sandbox up" downloads missing models

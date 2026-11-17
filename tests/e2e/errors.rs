@@ -14,7 +14,19 @@ fn docker_not_installed() {
     let r = f.run_with(&["status"], RunOpts::default().path(f.empty_bin.as_str()));
     assert_exit(&r, 1);
     assert_calls(&r, &[]);
-    assert_output(&r, "Docker is not installed.");
+    assert_output(&r, "Docker is not installed (SANDBOX_RUNTIME=docker).");
+}
+
+#[test]
+fn no_runtime_installed() {
+    let f = Fixture::new();
+    let r = f.run_with(
+        &["status"],
+        RunOpts::default().path(f.empty_bin.as_str()).runtime(""),
+    );
+    assert_exit(&r, 1);
+    assert_calls(&r, &[]);
+    assert_output(&r, "Neither Podman nor Docker is installed.");
 }
 
 #[rstest]

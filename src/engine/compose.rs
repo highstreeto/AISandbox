@@ -1,4 +1,4 @@
-//! Renders `compose.yml.j2` (the embedded template) into the one compose file docker compose runs with.
+//! Renders `compose.yml.j2` (the embedded template) into the one compose file the container runtime runs with.
 //!
 //! The template holds every service, network and hardening setting literally; only the values that come from
 //! `sandbox.toml` or this machine are expressions. Text values go through `q`, which writes a quoted YAML string,
@@ -8,6 +8,7 @@ use crate::engine::{self, embedded};
 use crate::paths;
 use crate::process::user_ids;
 use crate::project::{Project, write_state_ignore};
+use crate::runtime::RuntimeInfo;
 use anyhow::{Result, anyhow};
 use minijinja::value::{Serde, Value, ValueKind};
 use minijinja::{AutoEscape, Environment, UndefinedBehavior, syntax::SyntaxConfig};
@@ -40,6 +41,10 @@ struct Llm {
 
 #[derive(Debug, Serialize)]
 struct Host {
+    /// `docker` or `podman`.
+    runtime: String,
+    /// Rootless Podman: the desktop keeps the host user's id (`userns_mode: keep-id`).
+    rootless: bool,
     id: String,
     workdir: String,
     uid: String,
@@ -95,11 +100,14 @@ pub struct MountModel {
 /// Returns the engine files that were edited by hand and restored (the caller prints the warnings). The UI port, the
 /// project mounts and the proxy settings are written by the template itself, so `sandbox.toml` has no way to change
 /// them.
-pub fn generate(project: &Project) -> Result<engine::SyncReport> {
+pub fn generate(project: &Project, runtime: &RuntimeInfo) -> Result<engine::SyncReport> {
     let state_dir = project.state_dir();
     write_state_ignore(&state_dir)?;
     let report = engine::sync(&state_dir)?;
-    let text = render(&embedded::read_text(TEMPLATE_NAME)?, &model(project))?;
+    let text = render(
+        &embedded::read_text(TEMPLATE_NAME)?,
+        &model(project, runtime),
+    )?;
     paths::write_text(
         &project.gen_path(),
         &format!("# {}\n{text}", engine::header_text()),
@@ -167,11 +175,13 @@ pub fn quote(s: &str) -> String {
     out
 }
 
-fn model(project: &Project) -> Model {
+fn model(project: &Project, runtime: &RuntimeInfo) -> Model {
     let s = &project.settings;
     let (uid, gid) = user_ids();
     Model {
         host: Host {
+            runtime: runtime.kind.to_string(),
+            rootless: runtime.rootless,
             id: project.id.clone(),
             workdir: project.work_dir.clone(),
             uid: uid.to_string(),
@@ -284,6 +294,8 @@ mod tests {
     fn empty_model() -> Model {
         Model {
             host: Host {
+                runtime: "docker".into(),
+                rootless: false,
                 id: "x\"y".into(),
                 workdir: String::new(),
                 uid: String::new(),

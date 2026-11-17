@@ -16,7 +16,7 @@ use cli::{Cli, Command};
 use commands::{lifecycle, llm, maintenance, network, upgrade};
 use engine::compose;
 use project::Project;
-use runtime::{Ctx, Docker, Runtime};
+use runtime::{Ctx, Runtime};
 use ui::Ui;
 
 /// The app version, `<version>+<commit>` when built from git (see `build.rs`).
@@ -25,8 +25,8 @@ pub const VERSION: &str = env!("SANDBOX_VERSION");
 /// Runs the app with the command line (without the program name) and returns the exit code.
 ///
 /// The order of side effects is what the tests assert: `claude` is handled before the command line is parsed (all its
-/// arguments, `--help` and `-v` included, belong to claude); `init`, `allowlist`, `info` and `upgrade` need no Docker
-/// (`upgrade` no project either); every other command loads the project, checks Docker, refuses a container group that belongs to another project,
+/// arguments, `--help` and `-v` included, belong to claude); `init`, `allowlist`, `info` and `upgrade` need no container
+/// runtime (`upgrade` no project either); every other command loads the project, selects and checks the runtime (Docker or Podman), refuses a container group that belongs to another project,
 /// regenerates `.state/` and then runs.
 pub fn run(args: Vec<String>) -> i32 {
     let ui = Ui::new();
@@ -63,14 +63,14 @@ fn run_inner(ui: &Ui, args: Vec<String>) -> Result<i32> {
         Command::Upgrade { version, check } => upgrade::run(ui, check, version.as_deref()),
         command => {
             let project = Project::load(ui)?;
-            let rt = Docker::new(Ctx {
+            let rt = runtime::select(Ctx {
                 project: &project,
                 verbose,
                 ui,
-            });
-            runtime::need_runtime(&rt)?;
+            })?;
+            let info = runtime::need_runtime(rt.as_ref())?;
 
-            let sync_result = compose::generate(&project)?;
+            let sync_result = compose::generate(&project, &info)?;
             if sync_result.has_restored_or_updated() {
                 ui.rule("Syncing .state/");
                 for path in sync_result.restored {
@@ -80,7 +80,7 @@ fn run_inner(ui: &Ui, args: Vec<String>) -> Result<i32> {
                     lifecycle::info_updated(ui, &path);
                 }
             }
-            run_runtime_command(&rt, command)
+            run_runtime_command(rt.as_ref(), command)
         }
     }
 }

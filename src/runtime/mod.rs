@@ -1,19 +1,26 @@
-//! The container runtime that runs the sandbox: one [`Runtime`] implementation per program (`docker.rs`).
+//! The container runtime that runs the sandbox: one [`Runtime`] implementation per program (`docker.rs`,
+//! `podman.rs`), chosen by [`select`].
 //!
 //! The trait is the list of things the commands do with containers. Most methods have a default implementation
 //! built on [`Runtime::program`] and a few small hooks, so an implementation only spells out what differs.
 //! `src/engine/` is the other half: what gets generated into `.state/`; this module runs it.
 
 pub mod docker;
+pub mod podman;
 pub mod ps;
 
 pub use docker::Docker;
+pub use podman::Podman;
 pub use ps::ServiceState;
 
+use crate::config::{RuntimeSetting, SettingSource};
 use crate::process::{self, ProcResult};
 use crate::project::Project;
 use crate::ui::Ui;
 use anyhow::{Result, bail};
+
+/// Overrides `[host] runtime` for one call or one shell: `auto`, `docker` or `podman`.
+pub const ENV_VAR: &str = "SANDBOX_RUNTIME";
 
 /// What every runtime needs to run commands for one project.
 #[derive(Clone, Copy)]
@@ -24,10 +31,15 @@ pub struct Ctx<'a> {
     pub ui: &'a Ui,
 }
 
-/// What a running runtime reports about itself.
+/// What a running runtime reports about itself; the compose template gets it as `host.runtime` /
+/// `host.rootless`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeInfo {
+    /// `docker` or `podman`.
+    pub kind: &'static str,
     pub version: String,
+    /// Containers run in the user's own user namespace (rootless Podman).
+    pub rootless: bool,
 }
 
 pub trait Runtime: Sync {
@@ -58,6 +70,19 @@ pub trait Runtime: Sync {
     fn env(&self) -> &'static [(&'static str, &'static str)] {
         &[]
     }
+
+    /// More environment variables for captured compose calls.
+    fn captured_env(&self) -> &'static [(&'static str, &'static str)] {
+        &[]
+    }
+
+    /// Checks before `up` / `rebuild` builds anything, e.g. that the GPU the LLM asks for is usable.
+    fn check_before_up(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// What to do when starting failed and the output mentions the GPU.
+    fn gpu_hint(&self) -> &'static str;
 
     /// What to say when the program is installed but doesn't answer.
     fn not_running_message(&self) -> String;
@@ -225,7 +250,13 @@ pub trait Runtime: Sync {
         let mut full = self.compose_base();
         full.extend(self.captured_flags().iter().map(|s| s.to_string()));
         full.extend(args.iter().map(|a| a.to_string()));
-        process::capture_env(self.ui(), self.verbose(), self.program(), &full, self.env())
+        let envs: Vec<(&str, &str)> = self
+            .env()
+            .iter()
+            .chain(self.captured_env())
+            .copied()
+            .collect();
+        process::capture_env(self.ui(), self.verbose(), self.program(), &full, &envs)
     }
 
     /// A compose call attached to this terminal (build output, shell, logs, claude).
@@ -236,12 +267,63 @@ pub trait Runtime: Sync {
     }
 }
 
+/// Which runtime `SANDBOX_RUNTIME` and `[host] runtime` ask for, and where that came from (for messages).
+pub fn requested(project: &Project) -> Result<(RuntimeSetting, String)> {
+    if let Some(v) = std::env::var(ENV_VAR).ok().filter(|v| !v.trim().is_empty()) {
+        let Some(r) = RuntimeSetting::parse(&v) else {
+            bail!(
+                "{ENV_VAR} must be \"auto\", \"docker\" or \"podman\" (got \"{}\").",
+                v.trim()
+            );
+        };
+        return Ok((r, format!("{ENV_VAR}={}", r.name())));
+    }
+    let s = &project.settings;
+    let from = match s.runtime_source {
+        SettingSource::Default => "auto".to_string(),
+        src => format!(
+            "runtime = \"{}\" in {}",
+            s.runtime.name(),
+            src.file_name().unwrap_or_default()
+        ),
+    };
+    Ok((s.runtime, from))
+}
+
+/// The runtime for this project: the one asked for, or with `auto` Podman if it is installed, else Docker.
+pub fn select<'a>(ctx: Ctx<'a>) -> Result<Box<dyn Runtime + 'a>> {
+    let (setting, from) = requested(ctx.project)?;
+    let docker = || -> Box<dyn Runtime + 'a> { Box::new(Docker::new(ctx)) };
+    let podman = || -> Box<dyn Runtime + 'a> { Box::new(Podman::new(ctx)) };
+    let rt = match setting {
+        RuntimeSetting::Docker => docker(),
+        RuntimeSetting::Podman => podman(),
+        RuntimeSetting::Auto => match available(RuntimeSetting::Auto) {
+            Some(RuntimeSetting::Podman) => podman(),
+            Some(_) => docker(),
+            None => bail!("Neither Podman nor Docker is installed."),
+        },
+    };
+    if !process::on_path(rt.program()) {
+        bail!("{} is not installed ({from}).", rt.name());
+    }
+    Ok(rt)
+}
+
+/// The runtime `setting` resolves to on this machine, if it is installed. `Auto` prefers Podman.
+pub fn available(setting: RuntimeSetting) -> Option<RuntimeSetting> {
+    let installed = |r: RuntimeSetting| process::on_path(r.name()).then_some(r);
+    match setting {
+        RuntimeSetting::Auto => {
+            installed(RuntimeSetting::Podman).or_else(|| installed(RuntimeSetting::Docker))
+        }
+        r => installed(r),
+    }
+}
+
 /// Before any container command: the runtime is installed and running, and the compose group isn't another
 /// project's.
 pub fn need_runtime(rt: &dyn Runtime) -> Result<RuntimeInfo> {
-    if !process::on_path(rt.program()) {
-        bail!("{} is not installed.", rt.name());
-    }
     let info = rt
         .ui()
         .spin(&format!("Checking {}…", rt.name()), || rt.check_running())?;

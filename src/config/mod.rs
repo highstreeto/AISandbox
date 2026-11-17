@@ -62,6 +62,10 @@ pub struct Settings {
     pub browser: BrowserSetting,
     /// Which file `browser` is from.
     pub browser_source: SettingSource,
+    /// `[host] runtime`: Docker or Podman.
+    pub runtime: RuntimeSetting,
+    /// Which file `runtime` is from.
+    pub runtime_source: SettingSource,
     /// `[llm]`: the local model; `None` = off.
     pub llm: Option<LlmSettings>,
     /// `[llm]` is set up in `sandbox.toml` but `sandbox.local.toml` turns it off on this machine.
@@ -124,6 +128,37 @@ pub enum BrowserSetting {
     Off,
     /// A program and its arguments; the URL is added as the last one, or where `{url}` is.
     Command(Vec<String>),
+}
+
+/// `[host] runtime`: which container runtime runs the sandbox.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeSetting {
+    /// Podman if it is installed, else Docker.
+    Auto,
+    Docker,
+    Podman,
+}
+
+impl RuntimeSetting {
+    pub const NAMES: &[&str] = &["auto", "docker", "podman"];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Docker => "docker",
+            Self::Podman => "podman",
+        }
+    }
+
+    /// `auto`, `docker` or `podman` (case and surrounding spaces don't matter).
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "docker" => Some(Self::Docker),
+            "podman" => Some(Self::Podman),
+            _ => None,
+        }
+    }
 }
 
 /// Where a setting that can come from either file was read.
@@ -406,13 +441,21 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
 
     // --- [host] and [llm]; the local file overrides the main one ---
     let mut browser = (BrowserSetting::Default, SettingSource::Default);
-    if let Some(b) = read_host(&mut host, FILE_NAME)? {
+    let mut runtime = (RuntimeSetting::Auto, SettingSource::Default);
+    let main_host = read_host(&mut host, FILE_NAME)?;
+    if let Some(b) = main_host.browser {
         browser = (b, SettingSource::Main);
+    }
+    if let Some(r) = main_host.runtime {
+        runtime = (r, SettingSource::Main);
     }
     let main_llm = read_llm(&mut llm, FILE_NAME, false)?;
     let local = read_local(&path.with_file_name(LOCAL_FILE_NAME))?;
-    if let Some(b) = local.browser {
+    if let Some(b) = local.host.browser {
         browser = (b, SettingSource::Local);
+    }
+    if let Some(r) = local.host.runtime {
+        runtime = (r, SettingSource::Local);
     }
     let (llm, llm_off_locally) = merge_llm(main_llm, local.llm);
 
@@ -440,6 +483,8 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
         shares: share_list,
         browser: browser.0,
         browser_source: browser.1,
+        runtime: runtime.0,
+        runtime_source: runtime.1,
         llm,
         llm_off_locally,
     })
@@ -464,8 +509,15 @@ fn parse_text(name: &str, text: &str) -> Result<Table> {
 /// What `sandbox.local.toml` sets.
 #[derive(Debug, Default)]
 struct LocalSettings {
-    browser: Option<BrowserSetting>,
+    host: HostFile,
     llm: LlmFile,
+}
+
+/// The keys of one `[host]` section.
+#[derive(Debug, Default)]
+struct HostFile {
+    browser: Option<BrowserSetting>,
+    runtime: Option<RuntimeSetting>,
 }
 
 /// The keys of one `[llm]` section. `models` and `keep_alive` are only read from `sandbox.toml`, `gpu` only from
@@ -500,19 +552,28 @@ fn local_settings(root: &Table) -> Result<LocalSettings> {
     let mut llm = r.table("llm")?;
     r.done("table")?;
     Ok(LocalSettings {
-        browser: read_host(&mut host, LOCAL_FILE_NAME)?,
+        host: read_host(&mut host, LOCAL_FILE_NAME)?,
         llm: read_llm(&mut llm, LOCAL_FILE_NAME, true)?,
     })
 }
 
-/// The `[host]` section of either file: `Some` if `browser` is set.
-fn read_host(host: &mut TableReader, file: &str) -> Result<Option<BrowserSetting>> {
-    let setting = match host.raw("browser") {
+/// The `[host]` section of either file.
+fn read_host(host: &mut TableReader, file: &str) -> Result<HostFile> {
+    let browser = match host.raw("browser") {
         None => None,
         Some(v) => Some(browser_value(file, v)?),
     };
+    let runtime = match host.str("runtime")? {
+        None => None,
+        Some(v) => Some(RuntimeSetting::parse(v).ok_or_else(|| {
+            error_in(
+                file,
+                format!("host.runtime must be \"auto\", \"docker\" or \"podman\" (got \"{v}\")."),
+            )
+        })?),
+    };
     host.done("key")?;
-    Ok(setting)
+    Ok(HostFile { browser, runtime })
 }
 
 /// The `[llm]` section of either file. `local` selects the keys: `gpu` only in `sandbox.local.toml`, `models` and
@@ -918,10 +979,44 @@ mod tests {
     }
 
     #[test]
+    fn runtime_defaults_to_auto_and_the_local_file_wins() {
+        let s = read_str("").unwrap();
+        assert_eq!(
+            (s.runtime, s.runtime_source),
+            (RuntimeSetting::Auto, SettingSource::Default)
+        );
+        let s = read_str("[host]\nruntime = \" Docker \"\n").unwrap();
+        assert_eq!(
+            (s.runtime, s.runtime_source),
+            (RuntimeSetting::Docker, SettingSource::Main)
+        );
+        let s = read_with_local(
+            "[host]\nruntime = \"docker\"\n",
+            "[host]\nruntime = \"podman\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            (s.runtime, s.runtime_source),
+            (RuntimeSetting::Podman, SettingSource::Local)
+        );
+    }
+
+    #[test]
+    fn an_unknown_runtime_is_an_error() {
+        assert_eq!(
+            read_with_local("", "[host]\nruntime = \"lxc\"\n")
+                .unwrap_err()
+                .to_string(),
+            "sandbox.local.toml: host.runtime must be \"auto\", \"docker\" or \"podman\" (got \"lxc\")."
+        );
+        assert!(read_str("[host]\nruntime = 1\n").is_err());
+    }
+
+    #[test]
     fn unknown_host_keys_are_errors() {
         assert_eq!(
             read_str("[host]\nbrowzer = 1\n").unwrap_err().to_string(),
-            "sandbox.toml: unknown key 'host.browzer' (known: browser)."
+            "sandbox.toml: unknown key 'host.browzer' (known: browser, runtime)."
         );
     }
 
@@ -973,7 +1068,7 @@ mod tests {
             .to_string();
         assert_eq!(
             e,
-            "sandbox.local.toml: unknown key 'host.other' (known: browser)."
+            "sandbox.local.toml: unknown key 'host.other' (known: browser, runtime)."
         );
         let e = read_with_local("", "[host]\nbrowser = \n")
             .unwrap_err()

@@ -78,6 +78,7 @@ pub fn ps_json() -> String {
 /// <tmp>/demo-project/.sandbox/   sandbox.toml, allowlist.txt, .state/id written here;
 ///                                the engine is written to .state/desktop and .state/proxy by the app
 /// <tmp>/fakebin/docker, xdg-open the fake docker (tests/fake_docker)
+/// <tmp>/fakepodman/podman, nvidia-ctk   the same fake, for Podman (only on PATH when a test puts it there)
 /// <tmp>/empty/                   a PATH with nothing on it
 /// ```
 pub struct Fixture {
@@ -86,6 +87,7 @@ pub struct Fixture {
     pub project_dir: Utf8PathBuf,
     pub dir: Utf8PathBuf,
     pub fake_bin: Utf8PathBuf,
+    pub podman_bin: Utf8PathBuf,
     pub empty_bin: Utf8PathBuf,
     runs: AtomicUsize,
 }
@@ -101,6 +103,7 @@ impl Fixture {
         let dir = project_dir.join(".sandbox");
         let f = Self {
             fake_bin: root.join("fakebin"),
+            podman_bin: root.join("fakepodman"),
             empty_bin: root.join("empty"),
             root,
             project_dir,
@@ -186,6 +189,26 @@ impl Fixture {
             let target = self.fake_bin.join(format!("{name}{suffix}"));
             link_or_copy(Path::new(exe), target.as_std_path());
         }
+        fs::create_dir_all(&self.podman_bin).unwrap();
+        for name in ["podman", "nvidia-ctk"] {
+            let target = self.podman_bin.join(format!("{name}{suffix}"));
+            link_or_copy(Path::new(exe), target.as_std_path());
+        }
+    }
+
+    /// A PATH with only the fake programs: Podman (and nvidia-ctk) and/or Docker (and the browser opener).
+    pub fn fake_path(&self, podman: bool, docker: bool) -> OsString {
+        let mut dirs = Vec::new();
+        if podman {
+            dirs.push(self.podman_bin.clone().into_std_path_buf());
+        }
+        if docker {
+            dirs.push(self.fake_bin.clone().into_std_path_buf());
+        }
+        if dirs.is_empty() {
+            dirs.push(self.empty_bin.clone().into_std_path_buf());
+        }
+        std::env::join_paths(dirs).unwrap()
     }
 
     /// Runs the built app with `SANDBOX_DIR` set, like the launchers do.
@@ -225,8 +248,19 @@ impl Fixture {
             .env("COLUMNS", "200")
             .env("NO_COLOR", "1")
             .env_remove("DOCKER_HOST")
+            .env_remove("SANDBOX_RUNTIME")
             .write_stdin("")
             .timeout(Duration::from_secs(120));
+        // Docker unless a test chooses otherwise, so a Podman installed on this machine can't change the calls.
+        match opts.runtime.as_deref() {
+            None => {
+                cmd.env("SANDBOX_RUNTIME", "docker");
+            }
+            Some("") => {}
+            Some(r) => {
+                cmd.env("SANDBOX_RUNTIME", r);
+            }
+        }
         match opts.sandbox_dir {
             Some(d) if d.is_empty() => {
                 cmd.env_remove("SANDBOX_DIR");
@@ -296,6 +330,27 @@ impl Fixture {
         }
     }
 
+    /// `podman compose -p <name> --project-directory <dir> -f .state/compose.yml <args>`: Podman has no
+    /// `--ansi never` (it sets `COMPOSE_ANSI` instead), so captured and attached calls look the same.
+    pub fn podman_compose<S: AsRef<str>>(&self, args: &[S]) -> Call {
+        let mut c = self.compose_as(PROJECT_NAME, args);
+        c.name = "podman".into();
+        c
+    }
+
+    pub fn podman_collision_check(&self) -> Call {
+        podman(&[
+            "ps",
+            "-a",
+            "--filter",
+            &format!("label=com.docker.compose.project={PROJECT_NAME}"),
+            "--filter",
+            "label=sandbox.id",
+            "--format",
+            "{{index .Labels \"sandbox.id\"}}",
+        ])
+    }
+
     pub fn collision_check(&self, project: &str) -> Call {
         docker(&[
             "ps",
@@ -357,6 +412,22 @@ pub fn docker<S: AsRef<str>>(args: &[S]) -> Call {
 /// `docker info --format {{.ServerVersion}}`
 pub fn docker_info() -> Call {
     docker(&["info", "--format", "{{.ServerVersion}}"])
+}
+
+pub fn podman<S: AsRef<str>>(args: &[S]) -> Call {
+    Call {
+        name: "podman".into(),
+        args: args.iter().map(|a| a.as_ref().to_string()).collect(),
+    }
+}
+
+/// `podman info --format "{{.Version.Version}} {{.Host.Security.Rootless}}"`
+pub fn podman_info() -> Call {
+    podman(&[
+        "info",
+        "--format",
+        "{{.Version.Version}} {{.Host.Security.Rootless}}",
+    ])
 }
 
 /// A call of a program other than docker (the browser opener).
@@ -439,7 +510,9 @@ impl Rule {
 /// What a running sandbox answers.
 pub fn default_rules() -> Vec<Rule> {
     vec![
+        rule("{{.Version.Version}}").stdout("5.4.1 true\n"),
         rule("info --format").stdout("27.0.0\n"),
+        rule("cdi list").stdout("INFO Found 2 CDI devices\nnvidia.com/gpu=0\nnvidia.com/gpu=all\n"),
         rule("ps -a --filter").stdout(format!("{ID}\n")),
         rule("port gateway 3001").stdout("127.0.0.1:49153\n"),
         rule("ps -a --format json").stdout(ps_json()),
@@ -459,6 +532,8 @@ pub struct RunOpts {
     pub cwd: Option<Utf8PathBuf>,
     /// The value of `SANDBOX_DIR` (default: the project's .sandbox; "" leaves it unset).
     pub sandbox_dir: Option<String>,
+    /// The value of `SANDBOX_RUNTIME` (default: "docker"; "" leaves it unset).
+    pub runtime: Option<String>,
 }
 
 impl RunOpts {
@@ -480,6 +555,10 @@ impl RunOpts {
     }
     pub fn sandbox_dir(mut self, dir: impl Into<String>) -> Self {
         self.sandbox_dir = Some(dir.into());
+        self
+    }
+    pub fn runtime(mut self, runtime: impl Into<String>) -> Self {
+        self.runtime = Some(runtime.into());
         self
     }
 }

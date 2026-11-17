@@ -16,7 +16,8 @@ see [AGENTS.md](AGENTS.md).
 
 ## Requirements
 
-- **Docker** (Docker Desktop on Windows/macOS)
+- **Podman** or **Docker** (Docker Desktop on Windows/macOS). If both are installed, Podman is used; see
+  [Container runtime](#container-runtime).
 - **Rust** 1.88 or newer ([rustup.rs](https://rustup.rs)) only to run the app from this repository or work on it.
 
 ## Install
@@ -73,7 +74,7 @@ certificate.
 | `init [folder]` / `info` | Create `.sandbox/` · show what was read from `sandbox.toml` |
 | `llm status\|pull\|rm\|usage` | The [local LLM](#local-llm) |
 
-`-v` shows the `docker` commands; `help <command>` or `<command> --help` shows details.
+`-v` shows the `podman` / `docker` commands; `help <command>` or `<command> --help` shows details.
 
 Each project gets its own container group (named after the folder), a random localhost port, and a home volume. The
 project is mounted at `/work/<folder>-<id>` (`~/project` links there); the id is kept in `.sandbox/.state/id`, so moving
@@ -152,10 +153,35 @@ has commented-out groups ready to enable: Claude, GitHub, NuGet, npm, pip, Gradl
 marketplace, JetBrains. Use `./sandbox blocked` to see what was refused and `./sandbox allow <host>` to enable it
 (takes about a second).
 
+## Container runtime
+
+The sandbox runs with Podman or Docker. By default (`auto`) it uses Podman if `podman` is on PATH, else Docker. To pick
+one, set it for your machine in `sandbox.local.toml`, or for one shell or call with `SANDBOX_RUNTIME` (it wins):
+
+```toml
+[host]
+runtime = "docker"   # "auto" (default), "podman" or "docker"
+```
+
+```bash
+SANDBOX_RUNTIME=docker sandbox up
+```
+
+`info` shows which runtime is used and why. **Podman notes:**
+
+- `podman compose` runs the compose file with docker-compose if it is installed (recommended, fully compatible), else
+  with podman-compose. Windows/macOS: start the Podman machine first (`podman machine start`).
+- Rootless Podman: the desktop keeps your user id (`userns_mode: keep-id`), so files the agent writes in the project
+  are yours on the host. Bind mounts are labelled for SELinux (`z`), as Fedora/RHEL need.
+- The LLM's NVIDIA GPU is a CDI device: install the NVIDIA Container Toolkit and run
+  `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml` once. On Linux, `up` checks this before building.
+- `restart: unless-stopped` only brings containers back after a reboot if `podman-restart.service` is enabled
+  (`systemctl --user enable podman-restart`).
+
 ## Local LLM
 
-A model running on your machine through Docker only. Each project that turns it on gets **Ollama** (with the GPU) and a
-small gateway; models are stored once per machine in the Docker volume `sandbox-llm-models` and shared by all projects.
+A model running on your machine through Podman or Docker only. Each project that turns it on gets **Ollama** (with the GPU) and a
+small gateway; models are stored once per machine in the volume `sandbox-llm-models` and shared by all projects.
 
 ```toml
 [llm]
@@ -183,7 +209,8 @@ The gateway only allows inference and read-only calls; downloads go through `san
 model server can't be used to get around the allowlist.
 
 **GPU setup.** Windows: Docker Desktop with WSL2 and a current NVIDIA Windows driver. Linux: NVIDIA driver plus the
-NVIDIA Container Toolkit. If the GPU can't be used, `up` says so.
+NVIDIA Container Toolkit (with Podman also its CDI spec, see [Container runtime](#container-runtime)). The CUDA Toolkit
+is not needed on the host; it comes with the Ollama image. If the GPU can't be used, `up` says so.
 
 **Models for 24 GB of VRAM:**
 
@@ -205,7 +232,7 @@ Sizes are rough, and not every tag has been tested. Agent tools need a model wit
 | Project | Read-write or read-only (`workspace`) |
 | `.sandbox/` | Read-only inside: the agent can't widen its own allowlist or tools |
 | `.git/` | Read-only (`protect_git`), so no hooks can be planted that run on your host. And the agent cannot commit any changes. |
-| Home | A Docker volume per project |
+| Home | A volume per project |
 | UI | `127.0.0.1` only, optional basic auth |
 | Proxy / gateway | Run as `nobody`, read-only filesystem, no capabilities |
 
@@ -223,6 +250,9 @@ the wallet isn't available. If something fails to load, check `./sandbox blocked
 |---|---|
 | Blank page on first open | Reload; KDE was still starting |
 | "Docker is not running" | Start Docker Desktop or the Docker service |
+| "Podman is not running" / "not working" | `podman machine start` (Windows/macOS); on Linux run `podman info` to see why |
+| "The NVIDIA GPU is not available to Podman" | Install the NVIDIA Container Toolkit, then `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`; or `gpu = "none"` |
+| Want Docker although Podman is installed | `runtime = "docker"` under `[host]` in `sandbox.local.toml`, or `SANDBOX_RUNTIME=docker` |
 | "cargo not found" / build error | Only the repository launchers need Rust (1.88 or newer); or [install](#install) a release |
 | "Could not find the .sandbox folder" | Run inside a project with `.sandbox/` (or `init` one), or use the launchers |
 | "built from source and can't upgrade itself" | `git pull` (and reinstall), or [install](#install) a release |
