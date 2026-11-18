@@ -28,7 +28,6 @@ pub struct Ctx<'a> {
     pub project: &'a Project,
     /// Print the commands that are run (`-v`).
     pub verbose: bool,
-    pub ui: &'a Ui,
 }
 
 /// What a running runtime reports about itself; the compose template gets it as `host.runtime` /
@@ -52,9 +51,6 @@ pub trait Runtime: Sync {
     fn project(&self) -> &Project {
         self.ctx().project
     }
-    fn ui(&self) -> &Ui {
-        self.ctx().ui
-    }
     fn verbose(&self) -> bool {
         self.ctx().verbose
     }
@@ -77,7 +73,7 @@ pub trait Runtime: Sync {
     }
 
     /// Checks before `up` / `rebuild` builds anything, e.g. that the GPU the LLM asks for is usable.
-    fn check_before_up(&self) -> Result<()> {
+    fn check_before_up(&self, _ui: &Ui) -> Result<()> {
         Ok(())
     }
 
@@ -88,49 +84,52 @@ pub trait Runtime: Sync {
     fn not_running_message(&self) -> String;
 
     /// The version, or an error that says how to start the runtime.
-    fn check_running(&self) -> Result<RuntimeInfo>;
+    fn check_running(&self, ui: &Ui) -> Result<RuntimeInfo>;
 
     // --- host level ---
 
     /// Creates a volume (idempotent).
-    fn volume_create(&self, name: &str) -> ProcResult {
-        self.run(&["volume", "create", name])
+    fn volume_create(&self, ui: &Ui, name: &str) -> ProcResult {
+        self.run(ui, &["volume", "create", name])
     }
 
-    fn volume_remove(&self, name: &str) -> ProcResult {
-        self.run(&["volume", "rm", name])
+    fn volume_remove(&self, ui: &Ui, name: &str) -> ProcResult {
+        self.run(ui, &["volume", "rm", name])
     }
 
-    fn volume_exits(&self, name: &str) -> bool {
-        self.run(&["volume", "inspect", name]).exit_code == 0
+    fn volume_exits(&self, ui: &Ui, name: &str) -> bool {
+        self.run(ui, &["volume", "inspect", name]).exit_code == 0
     }
 
     /// The `sandbox.id` labels of every container in this project's compose group.
-    fn project_owner_ids(&self) -> Vec<String> {
+    fn project_owner_ids(&self, ui: &Ui) -> Vec<String> {
         let name = &self.project().name;
-        self.run(&[
-            "ps",
-            "-a",
-            "--filter",
-            &format!("label=com.docker.compose.project={name}"),
-            "--filter",
-            "label=sandbox.id",
-            "--format",
-            "{{.Label \"sandbox.id\"}}",
-        ])
+        self.run(
+            ui,
+            &[
+                "ps",
+                "-a",
+                "--filter",
+                &format!("label=com.docker.compose.project={name}"),
+                "--filter",
+                "label=sandbox.id",
+                "--format",
+                "{{.Label \"sandbox.id\"}}",
+            ],
+        )
         .lines()
     }
 
     // --- the project's compose group ---
 
     /// `up -d --wait`: starts everything and waits until it's healthy.
-    fn compose_up(&self) -> ProcResult {
-        self.compose(&["up", "-d", "--wait", "--wait-timeout", "300"])
+    fn compose_up(&self, ui: &Ui) -> ProcResult {
+        self.compose(ui, &["up", "-d", "--wait", "--wait-timeout", "300"])
     }
 
     /// Builds the images with the build output on this terminal. `cache_bust` rebuilds the tool layers and pulls
     /// newer base images.
-    fn compose_build(&self, cache_bust: Option<u64>) -> Result<i32> {
+    fn compose_build(&self, ui: &Ui, cache_bust: Option<u64>) -> Result<i32> {
         let mut args = vec!["build".to_string()];
         if let Some(now) = cache_bust {
             args.extend([
@@ -139,27 +138,27 @@ pub trait Runtime: Sync {
                 format!("CACHE_BUST={now}"),
             ]);
         }
-        self.compose_attached(&args)
+        self.compose_attached(ui, &args)
     }
 
-    fn compose_stop(&self) -> ProcResult {
-        self.compose(&["stop"])
+    fn compose_stop(&self, ui: &Ui) -> ProcResult {
+        self.compose(ui, &["stop"])
     }
 
-    fn compose_down(&self) -> ProcResult {
-        self.compose(&["down"])
+    fn compose_down(&self, ui: &Ui) -> ProcResult {
+        self.compose(ui, &["down"])
     }
 
     /// Restarts the given services, or all of them.
-    fn compose_restart(&self, services: &[&str]) -> ProcResult {
+    fn compose_restart(&self, ui: &Ui, services: &[&str]) -> ProcResult {
         let mut args = vec!["restart"];
         args.extend_from_slice(services);
-        self.compose(&args)
+        self.compose(ui, &args)
     }
 
     /// The containers of this project, by service name.
-    fn compose_ps(&self) -> Result<Vec<ServiceState>> {
-        let r = self.compose(&["ps", "-a", "--format", "json"]);
+    fn compose_ps(&self, ui: &Ui) -> Result<Vec<ServiceState>> {
+        let r = self.compose(ui, &["ps", "-a", "--format", "json"]);
         if r.exit_code != 0 || r.stdout.trim().is_empty() {
             return Ok(Vec::new());
         }
@@ -167,8 +166,8 @@ pub trait Runtime: Sync {
     }
 
     /// `host:port` that a container port is published on, if it is.
-    fn compose_port(&self, service: &str, port: u16) -> Option<String> {
-        let r = self.compose(&["port", service, &port.to_string()]);
+    fn compose_port(&self, ui: &Ui, service: &str, port: u16) -> Option<String> {
+        let r = self.compose(ui, &["port", service, &port.to_string()]);
         if r.exit_code != 0 {
             return None;
         }
@@ -176,40 +175,46 @@ pub trait Runtime: Sync {
     }
 
     /// The logs on this terminal.
-    fn compose_logs(&self, services: &[String], tail: i64, follow: bool) -> Result<i32> {
+    fn compose_logs(&self, ui: &Ui, services: &[String], tail: i64, follow: bool) -> Result<i32> {
         let mut args = vec!["logs".to_string(), format!("--tail={tail}")];
         if follow {
             args.push("-f".to_string());
         }
         args.extend_from_slice(services);
-        self.compose_attached(&args)
+        self.compose_attached(ui, &args)
     }
 
     /// One service's whole log, without the service prefix, captured.
-    fn compose_logs_captured(&self, service: &str) -> ProcResult {
-        self.compose(&["logs", "--no-log-prefix", service])
+    fn compose_logs_captured(&self, ui: &Ui, service: &str) -> ProcResult {
+        self.compose(ui, &["logs", "--no-log-prefix", service])
     }
 
     /// `exec -T <service> <command…>`, captured.
-    fn compose_exec(&self, service: &str, command: &[&str]) -> ProcResult {
+    fn compose_exec(&self, ui: &Ui, service: &str, command: &[&str]) -> ProcResult {
         let mut args = vec!["exec", "-T", service];
         args.extend_from_slice(command);
-        self.compose(&args)
+        self.compose(ui, &args)
     }
 
     /// `exec <service> <command…>` on this terminal; `tty: false` adds `-T` (no terminal to attach).
-    fn compose_exec_attached(&self, service: &str, command: &[&str], tty: bool) -> Result<i32> {
+    fn compose_exec_attached(
+        &self,
+        ui: &Ui,
+        service: &str,
+        command: &[&str],
+        tty: bool,
+    ) -> Result<i32> {
         let mut args = vec!["exec".to_string()];
         if !tty {
             args.push("-T".to_string());
         }
         args.push(service.to_string());
         args.extend(command.iter().map(|c| c.to_string()));
-        self.compose_attached(&args)
+        self.compose_attached(ui, &args)
     }
 
     /// A command in the desktop container as the desktop user, in the project folder, on this terminal.
-    fn exec_desktop(&self, command: &[String]) -> Result<i32> {
+    fn exec_desktop(&self, ui: &Ui, command: &[String]) -> Result<i32> {
         let mut args: Vec<String> = [
             "exec",
             "-u",
@@ -222,14 +227,14 @@ pub trait Runtime: Sync {
         .map(|s| s.to_string())
         .collect();
         args.extend_from_slice(command);
-        self.compose_attached(&args)
+        self.compose_attached(ui, &args)
     }
 
     // --- plumbing ---
 
     /// `<program> <args>`, captured.
-    fn run(&self, args: &[&str]) -> ProcResult {
-        process::capture_env(self.ui(), self.verbose(), self.program(), args, self.env())
+    fn run(&self, ui: &Ui, args: &[&str]) -> ProcResult {
+        process::capture_env(ui, self.verbose(), self.program(), args, self.env())
     }
 
     /// `compose -p <name> --project-directory <dir> -f <generated file>`
@@ -250,7 +255,7 @@ pub trait Runtime: Sync {
     }
 
     /// A compose call with captured output (for spinners, tables and error panels).
-    fn compose(&self, args: &[&str]) -> ProcResult {
+    fn compose(&self, ui: &Ui, args: &[&str]) -> ProcResult {
         let mut full = self.compose_base();
         full.extend(self.captured_flags().iter().map(|s| s.to_string()));
         full.extend(args.iter().map(|a| a.to_string()));
@@ -260,14 +265,14 @@ pub trait Runtime: Sync {
             .chain(self.captured_env())
             .copied()
             .collect();
-        process::capture_env(self.ui(), self.verbose(), self.program(), &full, &envs)
+        process::capture_env(ui, self.verbose(), self.program(), &full, &envs)
     }
 
     /// A compose call attached to this terminal (build output, shell, logs, claude).
-    fn compose_attached(&self, args: &[String]) -> Result<i32> {
+    fn compose_attached(&self, ui: &Ui, args: &[String]) -> Result<i32> {
         let mut full = self.compose_base();
         full.extend_from_slice(args);
-        process::interactive_env(self.ui(), self.verbose(), self.program(), &full, self.env())
+        process::interactive_env(ui, self.verbose(), self.program(), &full, self.env())
     }
 }
 
@@ -327,18 +332,18 @@ pub fn available(setting: RuntimeSetting) -> Option<RuntimeSetting> {
 
 /// Before any container command: the runtime is installed and running, and the compose group isn't another
 /// project's.
-pub fn need_runtime(rt: &dyn Runtime) -> Result<RuntimeInfo> {
-    let info = rt
-        .ui()
-        .spin(&format!("Checking {}…", rt.name()), || rt.check_running())?;
-    check_collision(rt)?;
+pub fn need_runtime(ui: &Ui, rt: &dyn Runtime) -> Result<RuntimeInfo> {
+    let info = ui.spin(&format!("Checking {}…", rt.name()), || {
+        rt.check_running(ui)
+    })?;
+    check_collision(ui, rt)?;
     Ok(info)
 }
 
 /// Fails if containers of another project (another `sandbox.id`) use the same compose project name.
-fn check_collision(rt: &dyn Runtime) -> Result<()> {
+fn check_collision(ui: &Ui, rt: &dyn Runtime) -> Result<()> {
     let p = rt.project();
-    if rt.project_owner_ids().iter().any(|l| *l != p.id) {
+    if rt.project_owner_ids(ui).iter().any(|l| *l != p.id) {
         bail!(
             "Another project already uses the container group '{}'. Set name under [project] in sandbox.toml.",
             p.name
@@ -348,8 +353,8 @@ fn check_collision(rt: &dyn Runtime) -> Result<()> {
 }
 
 /// The desktop's URL, or none if the gateway's port isn't published (not running).
-pub fn ui_url(rt: &dyn Runtime) -> Option<String> {
-    let p = rt.compose_port("gateway", 3001)?;
+pub fn ui_url(ui: &Ui, rt: &dyn Runtime) -> Option<String> {
+    let p = rt.compose_port(ui, "gateway", 3001)?;
     if p.is_empty() || p.ends_with(":0") {
         return None;
     }

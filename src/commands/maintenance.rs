@@ -74,8 +74,7 @@ pub fn init(ui: &Ui, folder: Option<&str>) -> Result<i32> {
     Ok(0)
 }
 
-pub fn reset_home(rt: &dyn Runtime, yes: bool) -> Result<i32> {
-    let ui = rt.ui();
+pub fn reset_home(ui: &Ui, rt: &dyn Runtime, yes: bool) -> Result<i32> {
     if !yes {
         if !ui.interactive {
             bail!("Refusing to delete the home volume without confirmation (use --yes).");
@@ -88,10 +87,12 @@ pub fn reset_home(rt: &dyn Runtime, yes: bool) -> Result<i32> {
             return Ok(0);
         }
     }
-    lifecycle::compose_command(rt, "Removing containers", "down", |rt| rt.compose_down())?;
+    lifecycle::compose_command(ui, rt, "Removing containers", "down", |rt| {
+        rt.compose_down(ui)
+    })?;
     let vol = format!("{}_home", rt.project().name);
     let r = ui.spin(&format!("Removing volume {vol}…"), || {
-        rt.volume_remove(&vol)
+        rt.volume_remove(ui, &vol)
     });
     if r.exit_code != 0 {
         ui.show_output(&format!("{} volume rm", rt.program()), &r);

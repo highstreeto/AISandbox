@@ -16,19 +16,18 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const CLAUDE_SCRIPT: &str = "command -v claude >/dev/null || { echo \"Claude Code CLI not installed: set claude_code under [tools] in sandbox.toml and rebuild.\"; exit 1; }; exec claude \"$@\"";
 
-pub fn up(rt: &dyn Runtime, open_browser: bool, pull_models: bool) -> Result<i32> {
-    rt.check_before_up()?;
-    build(rt, false)?;
-    ensure_llm_volume(rt)?;
-    start_and_wait(rt, true)?;
+pub fn up(ui: &Ui, rt: &dyn Runtime, open_browser: bool, pull_models: bool) -> Result<i32> {
+    rt.check_before_up(ui)?;
+    build(ui, rt, false)?;
+    ensure_llm_volume(ui, rt)?;
+    start_and_wait(ui, rt, true)?;
     if pull_models {
-        llm::pull_missing(rt)?;
+        llm::pull_missing(ui, rt)?;
     }
     std::thread::sleep(Duration::from_secs(2));
-    let Some(url) = runtime::ui_url(rt) else {
+    let Some(url) = runtime::ui_url(ui, rt) else {
         bail!("The sandbox started, but its UI port could not be determined.");
     };
-    let ui = rt.ui();
     let p = rt.project();
     let lines = [
         format!("{}   {}", ui.bold("Project"), p.name),
@@ -43,27 +42,26 @@ pub fn up(rt: &dyn Runtime, open_browser: bool, pull_models: bool) -> Result<i32
     Ok(0)
 }
 
-pub fn rebuild(rt: &dyn Runtime, pull: bool) -> Result<i32> {
-    rt.check_before_up()?;
-    build(rt, pull)?;
-    ensure_llm_volume(rt)?;
-    start_and_wait(rt, false)?;
-    llm::pull_missing(rt)?;
-    rt.ui().success("Rebuilt and running.");
+pub fn rebuild(ui: &Ui, rt: &dyn Runtime, pull: bool) -> Result<i32> {
+    rt.check_before_up(ui)?;
+    build(ui, rt, pull)?;
+    ensure_llm_volume(ui, rt)?;
+    start_and_wait(ui, rt, false)?;
+    llm::pull_missing(ui, rt)?;
+    ui.success("Rebuilt and running.");
     Ok(0)
 }
 
 /// The models volume is external: it has to exist before compose starts the stack.
-fn ensure_llm_volume(rt: &dyn Runtime) -> Result<()> {
+fn ensure_llm_volume(ui: &Ui, rt: &dyn Runtime) -> Result<()> {
     if rt.project().settings.llm.is_some() {
-        if rt.volume_exits(MODELS_VOLUME) {
+        if rt.volume_exits(ui, MODELS_VOLUME) {
             return Ok(());
         }
 
-        let res = rt.volume_create(MODELS_VOLUME);
+        let res = rt.volume_create(ui, MODELS_VOLUME);
         if res.exit_code != 0 {
-            rt.ui()
-                .show_output(&format!("{} volume create", rt.program()), &res);
+            ui.show_output(&format!("{} volume create", rt.program()), &res);
             bail!("Could not create the volume {MODELS_VOLUME} for the models.");
         }
     }
@@ -72,26 +70,25 @@ fn ensure_llm_volume(rt: &dyn Runtime) -> Result<()> {
 
 /// Runs one compose command with a spinner (stop, down, restart); `label` names it in the error output.
 pub fn compose_command(
+    ui: &Ui,
     rt: &dyn Runtime,
     what: &str,
     label: &str,
     call: impl FnOnce(&dyn Runtime) -> ProcResult + Send,
 ) -> Result<i32> {
     let name = &rt.project().name;
-    let r = rt.ui().spin(&format!("{what} '{name}'…"), || call(rt));
+    let r = ui.spin(&format!("{what} '{name}'…"), || call(rt));
     if r.exit_code != 0 {
-        rt.ui()
-            .show_output(&format!("{} compose {label}", rt.program()), &r);
+        ui.show_output(&format!("{} compose {label}", rt.program()), &r);
         bail!("{what} failed.");
     }
-    rt.ui().success(&format!("{what} '{name}': done."));
+    ui.success(&format!("{what} '{name}': done."));
     Ok(0)
 }
 
-pub fn status(rt: &dyn Runtime) -> Result<i32> {
-    let ui = rt.ui();
+pub fn status(ui: &Ui, rt: &dyn Runtime) -> Result<i32> {
     let name = &rt.project().name;
-    let ps = rt.compose_ps()?;
+    let ps = rt.compose_ps(ui)?;
     if ps.is_empty() {
         println!(
             "{} Start the sandbox with: {}",
@@ -111,29 +108,29 @@ pub fn status(rt: &dyn Runtime) -> Result<i32> {
         ]);
     }
     ui.print_table(Some(&ui.bold(name)), &t, None);
-    if let Some(url) = runtime::ui_url(rt) {
+    if let Some(url) = runtime::ui_url(ui, rt) {
         println!("{} {url}", ui.bold("URL:"));
     }
     Ok(0)
 }
 
-pub fn open(rt: &dyn Runtime) -> Result<i32> {
-    let Some(url) = runtime::ui_url(rt) else {
+pub fn open(ui: &Ui, rt: &dyn Runtime) -> Result<i32> {
+    let Some(url) = runtime::ui_url(ui, rt) else {
         bail!(
             "The sandbox is not running (start it with: {} up).",
-            rt.ui().self_name()
+            ui.self_name()
         );
     };
     if rt.project().settings.browser == BrowserSetting::Off {
-        println!("{} {url}", rt.ui().bold("URL:"));
+        println!("{} {url}", ui.bold("URL:"));
     } else {
-        process::open_browser(rt.ui(), &url, &rt.project().settings.browser);
+        process::open_browser(ui, &url, &rt.project().settings.browser);
     }
     Ok(0)
 }
 
-pub fn shell(rt: &dyn Runtime) -> Result<i32> {
-    rt.exec_desktop(&["bash".to_string(), "-l".to_string()])
+pub fn shell(ui: &Ui, rt: &dyn Runtime) -> Result<i32> {
+    rt.exec_desktop(ui, &["bash".to_string(), "-l".to_string()])
 }
 
 /// The Claude Code CLI in the sandbox, with every argument passed on verbatim. Loads the project itself: it also
@@ -143,9 +140,8 @@ pub fn claude(ui: &Ui, verbose: bool, args: &[String]) -> Result<i32> {
     let rt = runtime::select(Ctx {
         project: &project,
         verbose,
-        ui,
     })?;
-    let info = runtime::need_runtime(rt.as_ref())?;
+    let info = runtime::need_runtime(ui, rt.as_ref())?;
     for path in compose::generate(&project, &info)?.restored {
         warn_restored(ui, &path);
     }
@@ -156,11 +152,17 @@ pub fn claude(ui: &Ui, verbose: bool, args: &[String]) -> Result<i32> {
         "claude".to_string(),
     ];
     command.extend_from_slice(args);
-    rt.exec_desktop(&command)
+    rt.exec_desktop(ui, &command)
 }
 
-pub fn logs(rt: &dyn Runtime, services: &[String], tail: i64, follow: bool) -> Result<i32> {
-    rt.compose_logs(services, tail, follow)
+pub fn logs(
+    ui: &Ui,
+    rt: &dyn Runtime,
+    services: &[String],
+    tail: i64,
+    follow: bool,
+) -> Result<i32> {
+    rt.compose_logs(ui, services, tail, follow)
 }
 
 /// The warning for an engine file that was edited by hand and restored.
@@ -175,8 +177,8 @@ pub fn info_updated(ui: &Ui, rel: &str) {
 }
 
 /// Image build: the runtime's own progress output is shown as-is (it can take minutes the first time).
-fn build(rt: &dyn Runtime, pull: bool) -> Result<()> {
-    rt.ui().rule(if pull {
+fn build(ui: &Ui, rt: &dyn Runtime, pull: bool) -> Result<()> {
+    ui.rule(if pull {
         "Building images with the newest tools"
     } else {
         "Building images"
@@ -186,52 +188,51 @@ fn build(rt: &dyn Runtime, pull: bool) -> Result<()> {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |t| t.as_secs())
     });
-    if rt.compose_build(cache_bust)? != 0 {
+    if rt.compose_build(ui, cache_bust)? != 0 {
         bail!("Building the sandbox images failed (see the output above).");
     }
-    rt.ui().plain_rule();
+    ui.plain_rule();
     Ok(())
 }
 
 /// `up -d --wait` in the background while a live table shows each service's state and health (on a terminal).
-fn start_and_wait(rt: &dyn Runtime, tolerate_unhealthy: bool) -> Result<()> {
-    let up: ProcResult = if rt.ui().interactive && !rt.ctx().verbose {
-        live_up(rt)?
+fn start_and_wait(ui: &Ui, rt: &dyn Runtime, tolerate_unhealthy: bool) -> Result<()> {
+    let up: ProcResult = if ui.interactive && !rt.ctx().verbose {
+        live_up(ui, rt)?
     } else {
-        rt.compose_up()
+        rt.compose_up(ui)
     };
     if up.exit_code == 0 {
         return Ok(());
     }
     if tolerate_unhealthy
         && rt
-            .compose_ps()?
+            .compose_ps(ui)?
             .iter()
             .any(|s| s.service == "desktop" && s.state == "running")
     {
-        rt.ui().warn("The desktop isn't reporting ready yet; opening anyway (reload the page if it's blank).");
+        ui.warn("The desktop isn't reporting ready yet; opening anyway (reload the page if it's blank).");
         return Ok(());
     }
-    rt.ui()
-        .show_output(&format!("{} compose up", rt.program()), &up);
+    ui.show_output(&format!("{} compose up", rt.program()), &up);
     if let Some(hint) = llm::gpu_hint(rt, &up) {
-        rt.ui().warn(&hint);
+        ui.warn(&hint);
     }
     bail!("Starting the sandbox failed (see the output above).");
 }
 
 /// Runs `compose up` on a second thread; the first one redraws the table once a second.
-fn live_up(rt: &dyn Runtime) -> Result<ProcResult> {
+fn live_up(ui: &Ui, rt: &dyn Runtime) -> Result<ProcResult> {
     let term = Term::stdout();
     let started = Instant::now();
     std::thread::scope(|scope| {
         let (tx, rx) = mpsc::channel();
         scope.spawn(move || {
-            let _ = tx.send(rt.compose_up());
+            let _ = tx.send(rt.compose_up(ui));
         });
         let mut drawn = 0usize;
         loop {
-            let table = live_table(rt, started)?;
+            let table = live_table(ui, rt, started)?;
             if drawn > 0 {
                 let _ = term.clear_last_lines(drawn);
             }
@@ -240,7 +241,7 @@ fn live_up(rt: &dyn Runtime) -> Result<ProcResult> {
             match rx.recv_timeout(Duration::from_secs(1)) {
                 Ok(result) => {
                     // the final state
-                    let table = live_table(rt, started)?;
+                    let table = live_table(ui, rt, started)?;
                     let _ = term.clear_last_lines(drawn);
                     println!("{table}");
                     return Ok(result);
@@ -254,15 +255,14 @@ fn live_up(rt: &dyn Runtime) -> Result<ProcResult> {
     })
 }
 
-fn live_table(rt: &dyn Runtime, started: Instant) -> Result<String> {
-    let ui = rt.ui();
+fn live_table(ui: &Ui, rt: &dyn Runtime, started: Instant) -> Result<String> {
     let secs = started.elapsed().as_secs();
     let title = format!(
         "{} {}",
         ui.bold(format!("Starting '{}'", rt.project().name)),
         ui.dim(format!("({:02}:{:02})", secs / 60, secs % 60))
     );
-    let ps = rt.compose_ps()?;
+    let ps = rt.compose_ps(ui)?;
     let mut t = ui.new_table(&["Service", "State", "Health"]);
     if ps.is_empty() {
         t.add_row([ui.dim("creating containers…"), String::new(), String::new()]);

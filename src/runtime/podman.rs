@@ -4,6 +4,7 @@
 use super::{Ctx, Runtime, RuntimeInfo, ServiceState, ps};
 use crate::config::LlmGpu;
 use crate::process;
+use crate::ui::Ui;
 use anyhow::{Result, bail};
 use serde_json::Value;
 
@@ -22,8 +23,8 @@ impl<'a> Podman<'a> {
     }
 
     /// Whether `nvidia.com/gpu=all` is known: `nvidia-ctk cdi list`, or without `nvidia-ctk` a spec file.
-    fn nvidia_cdi_available(&self) -> bool {
-        let r = process::capture(self.ui(), self.verbose(), "nvidia-ctk", &["cdi", "list"]);
+    fn nvidia_cdi_available(&self, ui: &Ui) -> bool {
+        let r = process::capture(ui, self.verbose(), "nvidia-ctk", &["cdi", "list"]);
         if r.exit_code == 0 {
             return r.stdout.contains(NVIDIA_CDI_DEVICE);
         }
@@ -69,12 +70,15 @@ impl Runtime for Podman<'_> {
         }
     }
 
-    fn check_running(&self) -> Result<RuntimeInfo> {
-        let r = self.run(&[
-            "info",
-            "--format",
-            "{{.Version.Version}} {{.Host.Security.Rootless}}",
-        ]);
+    fn check_running(&self, ui: &Ui) -> Result<RuntimeInfo> {
+        let r = self.run(
+            ui,
+            &[
+                "info",
+                "--format",
+                "{{.Version.Version}} {{.Host.Security.Rootless}}",
+            ],
+        );
         if r.exit_code != 0 {
             bail!(self.not_running_message());
         }
@@ -89,24 +93,27 @@ impl Runtime for Podman<'_> {
     }
 
     /// `podman ps` has the labels as a map, not docker's `.Label` function.
-    fn project_owner_ids(&self) -> Vec<String> {
+    fn project_owner_ids(&self, ui: &Ui) -> Vec<String> {
         let name = &self.project().name;
-        self.run(&[
-            "ps",
-            "-a",
-            "--filter",
-            &format!("label=com.docker.compose.project={name}"),
-            "--filter",
-            "label=sandbox.id",
-            "--format",
-            "{{index .Labels \"sandbox.id\"}}",
-        ])
+        self.run(
+            ui,
+            &[
+                "ps",
+                "-a",
+                "--filter",
+                &format!("label=com.docker.compose.project={name}"),
+                "--filter",
+                "label=sandbox.id",
+                "--format",
+                "{{index .Labels \"sandbox.id\"}}",
+            ],
+        )
         .lines()
     }
 
     /// docker-compose prints its own JSON; podman-compose prints `podman ps` JSON.
-    fn compose_ps(&self) -> Result<Vec<ServiceState>> {
-        let r = self.compose(&["ps", "-a", "--format", "json"]);
+    fn compose_ps(&self, ui: &Ui) -> Result<Vec<ServiceState>> {
+        let r = self.compose(ui, &["ps", "-a", "--format", "json"]);
         if r.exit_code != 0 || r.stdout.trim().is_empty() {
             return Ok(Vec::new());
         }
@@ -125,14 +132,14 @@ impl Runtime for Podman<'_> {
     }
 
     /// The NVIDIA GPU needs a CDI spec on a Linux host; in a Podman machine it lives in the VM (no check).
-    fn check_before_up(&self) -> Result<()> {
+    fn check_before_up(&self, ui: &Ui) -> Result<()> {
         let wants_nvidia = self
             .project()
             .settings
             .llm
             .as_ref()
             .is_some_and(|l| l.gpu == LlmGpu::Nvidia);
-        if !wants_nvidia || !cfg!(target_os = "linux") || self.nvidia_cdi_available() {
+        if !wants_nvidia || !cfg!(target_os = "linux") || self.nvidia_cdi_available(ui) {
             return Ok(());
         }
         bail!(

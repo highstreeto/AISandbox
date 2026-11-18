@@ -13,8 +13,7 @@ use std::sync::LazyLock;
 static REFUSED: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"refused on filtered (?:domain|url) "([^"]+)""#).unwrap());
 
-pub fn allow(rt: &dyn Runtime, hosts: &[String]) -> Result<i32> {
-    let ui = rt.ui();
+pub fn allow(ui: &Ui, rt: &dyn Runtime, hosts: &[String]) -> Result<i32> {
     let mut list = Allowlist::load(&rt.project().allowlist_path())?;
     let hosts = validate_all(hosts)?;
     let mut t = ui.new_table(&["Host", "Result"]);
@@ -32,11 +31,10 @@ pub fn allow(rt: &dyn Runtime, hosts: &[String]) -> Result<i32> {
     }
     list.save()?;
     ui.print_table(None, &t, None);
-    reload_proxy(rt)
+    reload_proxy(ui, rt)
 }
 
-pub fn deny(rt: &dyn Runtime, hosts: &[String]) -> Result<i32> {
-    let ui = rt.ui();
+pub fn deny(ui: &Ui, rt: &dyn Runtime, hosts: &[String]) -> Result<i32> {
     let mut list = Allowlist::load(&rt.project().allowlist_path())?;
     let hosts = validate_all(hosts)?;
     let mut t = ui.new_table(&["Host", "Result"]);
@@ -50,7 +48,7 @@ pub fn deny(rt: &dyn Runtime, hosts: &[String]) -> Result<i32> {
     }
     list.save()?;
     ui.print_table(None, &t, None);
-    reload_proxy(rt)
+    reload_proxy(ui, rt)
 }
 
 /// All hosts are checked before anything changes: one bad host leaves the file untouched.
@@ -109,10 +107,9 @@ pub fn show_allowlist(ui: &Ui, project: &Project, all: bool) -> Result<i32> {
     Ok(0)
 }
 
-pub fn blocked(rt: &dyn Runtime) -> Result<i32> {
-    let ui = rt.ui();
+pub fn blocked(ui: &Ui, rt: &dyn Runtime) -> Result<i32> {
     let logs = ui.spin("Reading proxy logs…", || {
-        rt.compose_logs_captured("proxy")
+        rt.compose_logs_captured(ui, "proxy")
     });
     let hits = refused_hosts(&format!("{}\n{}", logs.stdout, logs.stderr));
     if hits.is_empty() {
@@ -168,9 +165,10 @@ fn refused_hosts(log: &str) -> Vec<(String, usize)> {
     hits
 }
 
-pub fn reload_proxy(rt: &dyn Runtime) -> Result<i32> {
-    let ui = rt.ui();
-    let r = ui.spin("Reloading the proxy…", || rt.compose_restart(&["proxy"]));
+pub fn reload_proxy(ui: &Ui, rt: &dyn Runtime) -> Result<i32> {
+    let r = ui.spin("Reloading the proxy…", || {
+        rt.compose_restart(ui, &["proxy"])
+    });
     if r.exit_code != 0 {
         ui.show_output(&format!("{} compose restart proxy", rt.program()), &r);
         bail!("Could not restart the proxy.");

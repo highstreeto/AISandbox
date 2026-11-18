@@ -8,6 +8,7 @@ use crate::cli::LlmCommand;
 use crate::config::{self, LlmSettings};
 use crate::process::ProcResult;
 use crate::runtime::Runtime;
+use crate::ui::Ui;
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -20,12 +21,12 @@ const USAGE_LOG: &str = "/var/log/llm/usage.jsonl";
 /// The address of the gateway inside the sandbox.
 pub const ENDPOINT: &str = "http://llm:11434";
 
-pub fn run(rt: &dyn Runtime, command: LlmCommand) -> Result<i32> {
+pub fn run(ui: &Ui, rt: &dyn Runtime, command: LlmCommand) -> Result<i32> {
     match command {
-        LlmCommand::Status => status(rt),
-        LlmCommand::Pull { model } => pull(rt, model.as_deref()),
-        LlmCommand::Rm { model, yes } => rm(rt, &model, yes),
-        LlmCommand::Usage { days, json, clear } => usage(rt, days, json, clear),
+        LlmCommand::Status => status(ui, rt),
+        LlmCommand::Pull { model } => pull(ui, rt, model.as_deref()),
+        LlmCommand::Rm { model, yes } => rm(ui, rt, &model, yes),
+        LlmCommand::Usage { days, json, clear } => usage(ui, rt, days, json, clear),
     }
 }
 
@@ -45,30 +46,30 @@ fn need_llm(rt: &dyn Runtime) -> Result<&LlmSettings> {
 }
 
 /// `ollama` must be running for anything that talks to it.
-fn need_running(rt: &dyn Runtime) -> Result<()> {
+fn need_running(ui: &Ui, rt: &dyn Runtime) -> Result<()> {
     let running = rt
-        .compose_ps()?
+        .compose_ps(ui)?
         .iter()
         .any(|s| s.service == "ollama" && s.state == "running");
     if !running {
         bail!(
             "The local LLM is not running (start it with: {} up).",
-            rt.ui().self_name()
+            ui.self_name()
         );
     }
     Ok(())
 }
 
 /// `compose exec -T <service> <command…>`, captured.
-fn exec(rt: &dyn Runtime, service: &str, command: &[&str]) -> ProcResult {
-    rt.compose_exec(service, command)
+fn exec(ui: &Ui, rt: &dyn Runtime, service: &str, command: &[&str]) -> ProcResult {
+    rt.compose_exec(ui, service, command)
 }
 
 /// The models Ollama has, as the names `ollama list` prints (`qwen3.6:27b`).
-fn installed(rt: &dyn Runtime) -> Result<Vec<String>> {
-    let r = exec(rt, "ollama", &["ollama", "list"]);
+fn installed(ui: &Ui, rt: &dyn Runtime) -> Result<Vec<String>> {
+    let r = exec(ui, rt, "ollama", &["ollama", "list"]);
     if r.exit_code != 0 {
-        rt.ui().show_output("ollama list", &r);
+        ui.show_output("ollama list", &r);
         bail!("Could not ask the local LLM which models it has.");
     }
     Ok(parse_list(&r.stdout))
@@ -94,12 +95,12 @@ fn full_tag(model: &str) -> String {
 }
 
 /// Downloads one model with Ollama's own progress display.
-fn download(rt: &dyn Runtime, model: &str) -> Result<()> {
-    let tty = rt.ui().interactive;
-    if rt.compose_exec_attached("ollama", &["ollama", "pull", model], tty)? != 0 {
+fn download(ui: &Ui, rt: &dyn Runtime, model: &str) -> Result<()> {
+    let tty = ui.interactive;
+    if rt.compose_exec_attached(ui, "ollama", &["ollama", "pull", model], tty)? != 0 {
         bail!(
             "Downloading {model} failed (see the output above). Try again with: {} llm pull {model}",
-            rt.ui().self_name()
+            ui.self_name()
         );
     }
     Ok(())
@@ -118,11 +119,11 @@ fn size_note(model: &str) -> &'static str {
 }
 
 /// `up`: pulls the project's models that the volume doesn't have yet.
-pub fn pull_missing(rt: &dyn Runtime) -> Result<()> {
+pub fn pull_missing(ui: &Ui, rt: &dyn Runtime) -> Result<()> {
     let Some(llm) = &rt.project().settings.llm else {
         return Ok(());
     };
-    let have: Vec<String> = installed(rt)?.iter().map(|m| full_tag(m)).collect();
+    let have: Vec<String> = installed(ui, rt)?.iter().map(|m| full_tag(m)).collect();
     let missing: Vec<String> = llm
         .all_models()
         .into_iter()
@@ -131,7 +132,7 @@ pub fn pull_missing(rt: &dyn Runtime) -> Result<()> {
     if missing.is_empty() {
         return Ok(());
     }
-    rt.ui().info(&format!(
+    ui.info(&format!(
         "Downloading {} into the shared volume {MODELS_VOLUME}; this happens once per machine and can take a while.",
         if missing.len() == 1 {
             "one model".to_string()
@@ -140,9 +141,9 @@ pub fn pull_missing(rt: &dyn Runtime) -> Result<()> {
         }
     ));
     for m in &missing {
-        rt.ui().rule(&format!("Pulling {m}{}", size_note(m)));
-        download(rt, m)?;
-        rt.ui().plain_rule();
+        ui.rule(&format!("Pulling {m}{}", size_note(m)));
+        download(ui, rt, m)?;
+        ui.plain_rule();
     }
     Ok(())
 }
@@ -170,8 +171,7 @@ pub fn gpu_hint(rt: &dyn Runtime, up: &ProcResult) -> Option<String> {
     ))
 }
 
-fn status(rt: &dyn Runtime) -> Result<i32> {
-    let ui = rt.ui();
+fn status(ui: &Ui, rt: &dyn Runtime) -> Result<i32> {
     let llm = need_llm(rt)?;
     let source = |s: config::SettingSource| match s.file_name() {
         Some(f) => format!(" ({f})"),
@@ -200,9 +200,9 @@ fn status(rt: &dyn Runtime) -> Result<i32> {
         );
     }
     ui.print_panel("Local LLM", &lines, None, false);
-    need_running(rt)?;
+    need_running(ui, rt)?;
     for (title, command) in [("Models", "list"), ("Loaded now", "ps")] {
-        let r = exec(rt, "ollama", &["ollama", command]);
+        let r = exec(ui, rt, "ollama", &["ollama", command]);
         if r.exit_code != 0 {
             ui.show_output(&format!("ollama {command}"), &r);
             bail!("Could not ask the local LLM (ollama {command}).");
@@ -218,47 +218,46 @@ fn source_gpu(llm: &LlmSettings) -> String {
         .map_or(String::new(), |f| format!(" ({f})"))
 }
 
-fn pull(rt: &dyn Runtime, model: Option<&str>) -> Result<i32> {
+fn pull(ui: &Ui, rt: &dyn Runtime, model: Option<&str>) -> Result<i32> {
     let llm = need_llm(rt)?;
     let models = match model {
         Some(m) => vec![config::parse_model_tag(m)?],
         None => llm.all_models(),
     };
-    need_running(rt)?;
+    need_running(ui, rt)?;
     for m in &models {
-        rt.ui().rule(&format!("Pulling {m}{}", size_note(m)));
-        download(rt, m)?;
-        rt.ui().plain_rule();
+        ui.rule(&format!("Pulling {m}{}", size_note(m)));
+        download(ui, rt, m)?;
+        ui.plain_rule();
     }
-    rt.ui()
-        .success(&format!("Models ready: {}.", models.join(", ")));
+    ui.success(&format!("Models ready: {}.", models.join(", ")));
     Ok(0)
 }
 
-fn rm(rt: &dyn Runtime, model: &str, yes: bool) -> Result<i32> {
+fn rm(ui: &Ui, rt: &dyn Runtime, model: &str, yes: bool) -> Result<i32> {
     need_llm(rt)?;
     let model = config::parse_model_tag(model)?;
     if !yes {
-        if !rt.ui().interactive {
+        if !ui.interactive {
             bail!("Refusing to delete a model without confirmation (use --yes).");
         }
         let question = format!(
             "Delete the model {} from {MODELS_VOLUME}? It is shared by all projects on this machine.",
-            rt.ui().bold(&model)
+            ui.bold(&model)
         );
-        if !rt.ui().confirm(&question) {
+        if !ui.confirm(&question) {
             return Ok(0);
         }
     }
-    need_running(rt)?;
-    let r = rt.ui().spin(&format!("Deleting {model}…"), || {
-        exec(rt, "ollama", &["ollama", "rm", &model])
+    need_running(ui, rt)?;
+    let r = ui.spin(&format!("Deleting {model}…"), || {
+        exec(ui, rt, "ollama", &["ollama", "rm", &model])
     });
     if r.exit_code != 0 {
-        rt.ui().show_output("ollama rm", &r);
+        ui.show_output("ollama rm", &r);
         bail!("Could not delete {model}.");
     }
-    rt.ui().success(&format!("Deleted {model}."));
+    ui.success(&format!("Deleted {model}."));
     Ok(0)
 }
 
@@ -340,12 +339,11 @@ pub fn day_before(unix_seconds: u64, days_ago: u64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
-fn usage(rt: &dyn Runtime, days: Option<u32>, as_json: bool, clear: bool) -> Result<i32> {
-    let ui = rt.ui();
+fn usage(ui: &Ui, rt: &dyn Runtime, days: Option<u32>, as_json: bool, clear: bool) -> Result<i32> {
     need_llm(rt)?;
-    need_running(rt)?;
+    need_running(ui, rt)?;
     if clear {
-        let r = exec(rt, "llm", &["sh", "-c", &format!(": > {USAGE_LOG}")]);
+        let r = exec(ui, rt, "llm", &["sh", "-c", &format!(": > {USAGE_LOG}")]);
         if r.exit_code != 0 {
             ui.show_output("clear the usage log", &r);
             bail!("Could not clear the usage log.");
@@ -353,7 +351,7 @@ fn usage(rt: &dyn Runtime, days: Option<u32>, as_json: bool, clear: bool) -> Res
         ui.success("Usage log cleared.");
         return Ok(0);
     }
-    let r = exec(rt, "llm", &["cat", USAGE_LOG]);
+    let r = exec(ui, rt, "llm", &["cat", USAGE_LOG]);
     if r.exit_code != 0 {
         ui.show_output("read the usage log", &r);
         bail!("Could not read the usage log.");

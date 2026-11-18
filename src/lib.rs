@@ -66,9 +66,8 @@ fn run_inner(ui: &Ui, args: Vec<String>) -> Result<i32> {
             let rt = runtime::select(Ctx {
                 project: &project,
                 verbose,
-                ui,
             })?;
-            let info = runtime::need_runtime(rt.as_ref())?;
+            let info = runtime::need_runtime(ui, rt.as_ref())?;
 
             let sync_result = compose::generate(&project, &info)?;
             if sync_result.has_restored_or_updated() {
@@ -80,38 +79,40 @@ fn run_inner(ui: &Ui, args: Vec<String>) -> Result<i32> {
                     lifecycle::info_updated(ui, &path);
                 }
             }
-            run_runtime_command(rt.as_ref(), command)
+            run_runtime_command(ui, rt.as_ref(), command)
         }
     }
 }
 
 /// The commands that run after the project is loaded and the container runtime is checked.
-fn run_runtime_command(rt: &dyn Runtime, command: Command) -> Result<i32> {
+fn run_runtime_command(ui: &Ui, rt: &dyn Runtime, command: Command) -> Result<i32> {
     match command {
-        Command::Up { no_open, no_pull } => lifecycle::up(rt, !no_open, !no_pull),
-        Command::Stop => lifecycle::compose_command(rt, "Stopping", "stop", |rt| rt.compose_stop()),
-        Command::Down => {
-            lifecycle::compose_command(rt, "Removing containers", "down", |rt| rt.compose_down())
+        Command::Up { no_open, no_pull } => lifecycle::up(ui, rt, !no_open, !no_pull),
+        Command::Stop => {
+            lifecycle::compose_command(ui, rt, "Stopping", "stop", |rt| rt.compose_stop(ui))
         }
-        Command::Restart => {
-            lifecycle::compose_command(rt, "Restarting", "restart", |rt| rt.compose_restart(&[]))
-        }
-        Command::Status => lifecycle::status(rt),
-        Command::Open => lifecycle::open(rt),
-        Command::Shell => lifecycle::shell(rt),
+        Command::Down => lifecycle::compose_command(ui, rt, "Removing containers", "down", |rt| {
+            rt.compose_down(ui)
+        }),
+        Command::Restart => lifecycle::compose_command(ui, rt, "Restarting", "restart", |rt| {
+            rt.compose_restart(ui, &[])
+        }),
+        Command::Status => lifecycle::status(ui, rt),
+        Command::Open => lifecycle::open(ui, rt),
+        Command::Shell => lifecycle::shell(ui, rt),
         Command::Logs {
             service,
             tail,
             no_follow,
-        } => lifecycle::logs(rt, &service, tail, !no_follow),
-        Command::Allow { host } => network::allow(rt, &host),
-        Command::Deny { host } => network::deny(rt, &host),
-        Command::Blocked => network::blocked(rt),
-        Command::Reload => network::reload_proxy(rt),
-        Command::Llm { command } => llm::run(rt, command),
-        Command::Rebuild => lifecycle::rebuild(rt, false),
-        Command::Update => lifecycle::rebuild(rt, true),
-        Command::ResetHome { yes } => maintenance::reset_home(rt, yes),
+        } => lifecycle::logs(ui, rt, &service, tail, !no_follow),
+        Command::Allow { host } => network::allow(ui, rt, &host),
+        Command::Deny { host } => network::deny(ui, rt, &host),
+        Command::Blocked => network::blocked(ui, rt),
+        Command::Reload => network::reload_proxy(ui, rt),
+        Command::Llm { command } => llm::run(ui, rt, command),
+        Command::Rebuild => lifecycle::rebuild(ui, rt, false),
+        Command::Update => lifecycle::rebuild(ui, rt, true),
+        Command::ResetHome { yes } => maintenance::reset_home(ui, rt, yes),
         // handled before a project is loaded
         Command::Claude { .. }
         | Command::Init { .. }

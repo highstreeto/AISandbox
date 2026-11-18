@@ -1,6 +1,7 @@
 //! Docker (Docker Desktop, or the Docker Engine on Linux) with the compose plugin.
 
 use super::{Ctx, Runtime, RuntimeInfo};
+use crate::ui::Ui;
 use anyhow::{Result, bail};
 
 pub struct Docker<'a> {
@@ -34,8 +35,8 @@ impl Runtime for Docker<'_> {
         "Docker is not running. Start Docker Desktop (or the Docker service) and try again.".into()
     }
 
-    fn check_running(&self) -> Result<RuntimeInfo> {
-        let r = self.run(&["info", "--format", "{{.ServerVersion}}"]);
+    fn check_running(&self, ui: &Ui) -> Result<RuntimeInfo> {
+        let r = self.run(ui, &["info", "--format", "{{.ServerVersion}}"]);
         if r.exit_code != 0 {
             bail!(self.not_running_message());
         }

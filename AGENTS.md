@@ -47,7 +47,7 @@ there; pure logic gets unit tests in `#[cfg(test)] mod tests` in its module.
   belong to claude); `init`, `allowlist`, `info` and `upgrade` need no container runtime (`upgrade` no project); every other command loads the project,
   selects the runtime, checks it, refuses a container group owned by another project, syncs the engine and regenerates `compose.yml`.
 - **Runtime.** `SANDBOX_RUNTIME`, else `[host] runtime` (`auto` | `docker` | `podman`); `auto` = Podman if `podman` is on
-  PATH, else Docker. Commands get a `&dyn Runtime` and call its operations; only what differs is overridden in
+  PATH, else Docker. Commands get `ui: &Ui` and a `&dyn Runtime` and call its operations (the `Ui` is passed to every operation that runs a program, never stored); only what differs is overridden in
   `docker.rs` / `podman.rs` (Podman: no `--ansi` flag but `COMPOSE_ANSI`, `podman info` format, `index .Labels`,
   podman-compose's `ps` JSON, the NVIDIA CDI check before `up`). The template gets `host.runtime` and `host.rootless`
   (keep-id, SELinux `z`, CDI GPU). The e2e tests set `SANDBOX_RUNTIME=docker` unless a test chooses otherwise.
