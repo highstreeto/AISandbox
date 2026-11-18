@@ -231,7 +231,7 @@ fn live_up(rt: &dyn Runtime) -> Result<ProcResult> {
         });
         let mut drawn = 0usize;
         loop {
-            let table = starting_table(rt, started)?;
+            let table = live_table(rt, started)?;
             if drawn > 0 {
                 let _ = term.clear_last_lines(drawn);
             }
@@ -240,7 +240,7 @@ fn live_up(rt: &dyn Runtime) -> Result<ProcResult> {
             match rx.recv_timeout(Duration::from_secs(1)) {
                 Ok(result) => {
                     // the final state
-                    let table = starting_table(rt, started)?;
+                    let table = live_table(rt, started)?;
                     let _ = term.clear_last_lines(drawn);
                     println!("{table}");
                     return Ok(result);
@@ -254,7 +254,7 @@ fn live_up(rt: &dyn Runtime) -> Result<ProcResult> {
     })
 }
 
-fn starting_table(rt: &dyn Runtime, started: Instant) -> Result<String> {
+fn live_table(rt: &dyn Runtime, started: Instant) -> Result<String> {
     let ui = rt.ui();
     let secs = started.elapsed().as_secs();
     let title = format!(
