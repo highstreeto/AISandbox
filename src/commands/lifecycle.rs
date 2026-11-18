@@ -130,7 +130,7 @@ pub fn open(ui: &Ui, rt: &dyn Runtime) -> Result<i32> {
 }
 
 pub fn shell(ui: &Ui, rt: &dyn Runtime) -> Result<i32> {
-    rt.exec_desktop(ui, &["bash".to_string(), "-l".to_string()])
+    rt.exec_desktop(ui, &["bash", "-l"])
 }
 
 /// The Claude Code CLI in the sandbox, with every argument passed on verbatim. Loads the project itself: it also
@@ -145,13 +145,8 @@ pub fn claude(ui: &Ui, verbose: bool, args: &[String]) -> Result<i32> {
     for path in compose::generate(&project, &info)?.restored {
         warn_restored(ui, &path);
     }
-    let mut command = vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        CLAUDE_SCRIPT.to_string(),
-        "claude".to_string(),
-    ];
-    command.extend_from_slice(args);
+    let mut command = vec!["sh", "-c", CLAUDE_SCRIPT, "claude"];
+    command.extend(args.iter().map(String::as_str));
     rt.exec_desktop(ui, &command)
 }
 

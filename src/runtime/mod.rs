@@ -18,6 +18,7 @@ use crate::process::{self, ProcResult};
 use crate::project::Project;
 use crate::ui::Ui;
 use anyhow::{Result, bail};
+use camino::Utf8Path;
 
 /// Overrides `[host] runtime` for one call or one shell: `auto`, `docker` or `podman`.
 pub const ENV_VAR: &str = "SANDBOX_RUNTIME";
@@ -130,13 +131,10 @@ pub trait Runtime: Sync {
     /// Builds the images with the build output on this terminal. `cache_bust` rebuilds the tool layers and pulls
     /// newer base images.
     fn compose_build(&self, ui: &Ui, cache_bust: Option<u64>) -> Result<i32> {
-        let mut args = vec!["build".to_string()];
-        if let Some(now) = cache_bust {
-            args.extend([
-                "--pull".to_string(),
-                "--build-arg".to_string(),
-                format!("CACHE_BUST={now}"),
-            ]);
+        let bust = cache_bust.map(|now| format!("CACHE_BUST={now}"));
+        let mut args = vec!["build"];
+        if let Some(bust) = &bust {
+            args.extend(["--pull", "--build-arg", bust]);
         }
         self.compose_attached(ui, &args)
     }
@@ -176,11 +174,12 @@ pub trait Runtime: Sync {
 
     /// The logs on this terminal.
     fn compose_logs(&self, ui: &Ui, services: &[String], tail: i64, follow: bool) -> Result<i32> {
-        let mut args = vec!["logs".to_string(), format!("--tail={tail}")];
+        let tail = format!("--tail={tail}");
+        let mut args = vec!["logs", &tail];
         if follow {
-            args.push("-f".to_string());
+            args.push("-f");
         }
-        args.extend_from_slice(services);
+        args.extend(services.iter().map(String::as_str));
         self.compose_attached(ui, &args)
     }
 
@@ -204,28 +203,25 @@ pub trait Runtime: Sync {
         command: &[&str],
         tty: bool,
     ) -> Result<i32> {
-        let mut args = vec!["exec".to_string()];
+        let mut args = vec!["exec"];
         if !tty {
-            args.push("-T".to_string());
+            args.push("-T");
         }
-        args.push(service.to_string());
-        args.extend(command.iter().map(|c| c.to_string()));
+        args.push(service);
+        args.extend_from_slice(command);
         self.compose_attached(ui, &args)
     }
 
     /// A command in the desktop container as the desktop user, in the project folder, on this terminal.
-    fn exec_desktop(&self, ui: &Ui, command: &[String]) -> Result<i32> {
-        let mut args: Vec<String> = [
+    fn exec_desktop(&self, ui: &Ui, command: &[&str]) -> Result<i32> {
+        let mut args = vec![
             "exec",
             "-u",
             "abc",
             "-w",
             &self.project().work_dir,
             "desktop",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+        ];
         args.extend_from_slice(command);
         self.compose_attached(ui, &args)
     }
@@ -237,28 +233,12 @@ pub trait Runtime: Sync {
         process::capture_env(ui, self.verbose(), self.program(), args, self.env())
     }
 
-    /// `compose -p <name> --project-directory <dir> -f <generated file>`
-    fn compose_base(&self) -> Vec<String> {
-        let p = self.project();
-        [
-            "compose",
-            "-p",
-            &p.name,
-            "--project-directory",
-            p.dir.as_str(),
-            "-f",
-            p.gen_path().as_str(),
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
-    }
-
     /// A compose call with captured output (for spinners, tables and error panels).
     fn compose(&self, ui: &Ui, args: &[&str]) -> ProcResult {
-        let mut full = self.compose_base();
-        full.extend(self.captured_flags().iter().map(|s| s.to_string()));
-        full.extend(args.iter().map(|a| a.to_string()));
+        let gen_path = self.project().gen_path();
+        let mut full = compose_base(self.project(), &gen_path);
+        full.extend_from_slice(self.captured_flags());
+        full.extend_from_slice(args);
         let envs: Vec<(&str, &str)> = self
             .env()
             .iter()
@@ -269,11 +249,25 @@ pub trait Runtime: Sync {
     }
 
     /// A compose call attached to this terminal (build output, shell, logs, claude).
-    fn compose_attached(&self, ui: &Ui, args: &[String]) -> Result<i32> {
-        let mut full = self.compose_base();
+    fn compose_attached(&self, ui: &Ui, args: &[&str]) -> Result<i32> {
+        let gen_path = self.project().gen_path();
+        let mut full = compose_base(self.project(), &gen_path);
         full.extend_from_slice(args);
         process::interactive_env(ui, self.verbose(), self.program(), &full, self.env())
     }
+}
+
+/// `compose -p <name> --project-directory <dir> -f <generated file>`; `gen_path` is [`Project::gen_path`].
+fn compose_base<'a>(p: &'a Project, gen_path: &'a Utf8Path) -> Vec<&'a str> {
+    vec![
+        "compose",
+        "-p",
+        &p.name,
+        "--project-directory",
+        p.dir.as_str(),
+        "-f",
+        gen_path.as_str(),
+    ]
 }
 
 /// Which runtime `SANDBOX_RUNTIME` and `[host] runtime` ask for, and where that came from (for messages).
