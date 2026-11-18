@@ -59,7 +59,7 @@ fn ensure_llm_volume(rt: &dyn Runtime) -> Result<()> {
         if rt.volume_exits(MODELS_VOLUME) {
             return Ok(());
         }
-        
+
         let res = rt.volume_create(MODELS_VOLUME);
         if res.exit_code != 0 {
             rt.ui()

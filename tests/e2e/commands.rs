@@ -800,6 +800,105 @@ fn up_no_pull_does_not_even_ask_ollama() {
     );
 }
 
+/// `volume inspect` fails the way Docker and Podman do when the volume is missing.
+fn no_models_volume() -> Rule {
+    rule("volume inspect sandbox-llm-models")
+        .stderr("Error response from daemon: get sandbox-llm-models: no such volume\n")
+        .exit(1)
+}
+
+#[test]
+fn up_with_llm_creates_the_missing_volume_before_starting() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(
+        &["up", "--no-open", "--no-pull"],
+        RunOpts::default().rules(vec![no_models_volume()]),
+    );
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose_interactive(&["build"]),
+            volume_inspect(),
+            volume_create(),
+            up_wait(&f),
+            port(&f),
+        ],
+    );
+}
+
+#[test]
+fn up_with_llm_does_not_create_an_existing_volume() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run(&["up", "--no-open", "--no-pull"]);
+    assert_exit(&r, 0);
+    assert!(r.calls.contains(&volume_inspect()), "{r}");
+    assert!(!r.calls.contains(&volume_create()), "{r}");
+}
+
+#[test]
+fn rebuild_with_llm_creates_the_missing_volume() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(
+        &["rebuild"],
+        RunOpts::default().rules(vec![
+            no_models_volume(),
+            rule("ollama list").stdout(format!(
+                "{LIST_HEADER}qwen3.6:27b  a  17 GB  now\ngpt-oss:20b  b  14 GB  now\n"
+            )),
+        ]),
+    );
+    assert_exit(&r, 0);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose_interactive(&["build"]),
+            volume_inspect(),
+            volume_create(),
+            up_wait(&f),
+            ollama(&f, &["list"]),
+        ],
+    );
+}
+
+#[test]
+fn a_failed_volume_creation_stops_before_starting() {
+    let f = Fixture::new();
+    with_llm(&f);
+    let r = f.run_with(
+        &["up", "--no-open"],
+        RunOpts::default().rules(vec![
+            no_models_volume(),
+            rule("volume create sandbox-llm-models")
+                .stderr("permission denied\n")
+                .exit(1),
+        ]),
+    );
+    assert_exit(&r, 1);
+    assert_calls(
+        &r,
+        &[
+            docker_info(),
+            f.collision_check(PROJECT_NAME),
+            f.compose_interactive(&["build"]),
+            volume_inspect(),
+            volume_create(),
+        ],
+    );
+    assert_output(&r, "permission denied");
+    assert_output(
+        &r,
+        "Could not create the volume sandbox-llm-models for the models.",
+    );
+}
+
 #[test]
 fn up_without_llm_touches_no_volume() {
     let f = Fixture::new();

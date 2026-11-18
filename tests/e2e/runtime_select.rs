@@ -274,6 +274,23 @@ fn podman_up_checks_the_nvidia_cdi_device_then_builds() {
 }
 
 #[test]
+fn podman_creates_the_missing_models_volume_with_podman() {
+    let f = Fixture::new();
+    with_llm(&f);
+    write_local(&f, "[llm]\ngpu = \"none\"\n");
+    let r = f.run_with(
+        &["up", "--no-open", "--no-pull"],
+        auto(&f, true, false).rules(vec![rule("volume inspect sandbox-llm-models").exit(1)]),
+    );
+    assert_exit(&r, 0);
+    let inspect = podman(&["volume", "inspect", "sandbox-llm-models"]);
+    let create = podman(&["volume", "create", "sandbox-llm-models"]);
+    let at = r.calls.iter().position(|c| *c == inspect);
+    assert!(at.is_some(), "{r}");
+    assert_eq!(r.calls.get(at.unwrap() + 1), Some(&create), "{r}");
+}
+
+#[test]
 fn podman_on_the_cpu_skips_the_nvidia_check() {
     let f = Fixture::new();
     with_llm(&f);
