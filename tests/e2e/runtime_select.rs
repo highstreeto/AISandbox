@@ -268,7 +268,7 @@ fn podman_up_checks_the_nvidia_cdi_device_then_builds() {
     assert_eq!(r.calls[3], f.podman_compose(&["build"]), "{r}");
     assert_eq!(
         r.calls[4],
-        podman(&["volume", "create", "sandbox-llm-models"]),
+        podman(&["volume", "inspect", "sandbox-llm-models"]),
         "{r}"
     );
 }

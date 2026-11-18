@@ -715,6 +715,10 @@ fn ollama_interactive(f: &Fixture, args: &[&str]) -> Call {
     f.compose_interactive(&a)
 }
 
+fn volume_inspect() -> Call {
+    docker(&["volume", "inspect", "sandbox-llm-models"])
+}
+
 fn volume_create() -> Call {
     docker(&["volume", "create", "sandbox-llm-models"])
 }
@@ -740,7 +744,7 @@ fn up_with_llm_creates_the_volume_and_pulls_the_missing_models() {
             docker_info(),
             f.collision_check(PROJECT_NAME),
             f.compose_interactive(&["build"]),
-            volume_create(),
+            volume_inspect(), // as fake returns 0, no volume create
             up_wait(&f),
             ollama(&f, &["list"]),
             ollama_interactive(&f, &["pull", "qwen3.6:27b"]),
@@ -769,7 +773,7 @@ fn up_with_llm_pulls_nothing_when_the_models_are_there() {
             docker_info(),
             f.collision_check(PROJECT_NAME),
             f.compose_interactive(&["build"]),
-            volume_create(),
+            volume_inspect(), // as fake returns 0, no volume create
             up_wait(&f),
             ollama(&f, &["list"]),
             port(&f),
@@ -789,7 +793,7 @@ fn up_no_pull_does_not_even_ask_ollama() {
             docker_info(),
             f.collision_check(PROJECT_NAME),
             f.compose_interactive(&["build"]),
-            volume_create(),
+            volume_inspect(), // as fake returns 0, no volume create
             up_wait(&f),
             port(&f),
         ],
@@ -897,7 +901,7 @@ fn rebuild_with_llm_creates_the_volume_and_pulls() {
             docker_info(),
             f.collision_check(PROJECT_NAME),
             f.compose_interactive(&["build"]),
-            volume_create(),
+            volume_inspect(), // as fake returns 0, no volume create
             up_wait(&f),
             ollama(&f, &["list"]),
             ollama_interactive(&f, &["pull", "qwen3.6:27b"]),
