@@ -55,7 +55,7 @@ pub fn rebuild(ui: &Ui, rt: &dyn Runtime, pull: bool) -> Result<i32> {
 /// The models volume is external: it has to exist before compose starts the stack.
 fn ensure_llm_volume(ui: &Ui, rt: &dyn Runtime) -> Result<()> {
     if rt.project().settings.llm.is_some() {
-        if rt.volume_exits(ui, MODELS_VOLUME) {
+        if rt.volume_exists(ui, MODELS_VOLUME) {
             return Ok(());
         }
 

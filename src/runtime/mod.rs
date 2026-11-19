@@ -98,7 +98,7 @@ pub trait Runtime: Sync {
         self.run(ui, &["volume", "rm", name])
     }
 
-    fn volume_exits(&self, ui: &Ui, name: &str) -> bool {
+    fn volume_exists(&self, ui: &Ui, name: &str) -> bool {
         self.run(ui, &["volume", "inspect", name]).exit_code == 0
     }
 
