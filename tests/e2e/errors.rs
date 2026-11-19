@@ -14,7 +14,19 @@ fn docker_not_installed() {
     let r = f.run_with(&["status"], RunOpts::default().path(f.empty_bin.as_str()));
     assert_exit(&r, 1);
     assert_calls(&r, &[]);
-    assert_output(&r, "Docker is not installed.");
+    assert_output(&r, "Docker is not installed (SANDBOX_RUNTIME=docker).");
+}
+
+#[test]
+fn no_runtime_installed() {
+    let f = Fixture::new();
+    let r = f.run_with(
+        &["status"],
+        RunOpts::default().path(f.empty_bin.as_str()).runtime(""),
+    );
+    assert_exit(&r, 1);
+    assert_calls(&r, &[]);
+    assert_output(&r, "Neither Podman nor Docker is installed.");
 }
 
 #[rstest]
@@ -153,6 +165,34 @@ fn up_fails_when_the_desktop_is_not_running() {
     assert_output(&r, "docker compose up (exit 1)");
     assert_output(&r, "boom");
     assert_output(&r, "Starting the sandbox failed");
+}
+
+#[test]
+fn a_failed_up_shows_its_output_once() {
+    let f = Fixture::new();
+    let ps = "{\"Service\":\"desktop\",\"State\":\"exited\",\"Health\":\"\",\"Status\":\"Exited (1)\"}\n";
+    for verbose in [false, true] {
+        let mut args = vec!["up", "--no-open"];
+        if verbose {
+            args.push("-v");
+        }
+        let r = f.run_with(
+            &args,
+            RunOpts::default().rules(vec![
+                rule("up -d --wait").stderr("boom-xyz\n").exit(1),
+                rule("ps -a --format json").stdout(ps),
+            ]),
+        );
+        assert_exit(&r, 1);
+        assert_eq!(r.output().matches("boom-xyz").count(), 1, "{r}");
+        // with -v it was shown as it arrived, not again in a panel
+        assert_eq!(
+            r.output().contains("docker compose up (exit 1)"),
+            !verbose,
+            "{r}"
+        );
+        assert_output(&r, "Starting the sandbox failed");
+    }
 }
 
 #[test]

@@ -35,6 +35,10 @@ if [ $# -gt 0 ]; then
 fi
 
 [ "$(id -u)" -eq 0 ] || exec sudo -E "$0" "$tool" "$@"
+# The image's HOME is the desktop user's /config (and sudo -E keeps it): anything a tool writes
+# there as root (gpg's ~/.gnupg, "opencode --version"'s ~/.cache) would end up root-owned in the
+# home volume, and a root-owned ~/.cache leaves KDE without its app menu.
+export HOME=/root
 echo ">> Installing $tool $*"
 # shellcheck disable=SC2068
 exec bash "$TOOLS/$tool.sh" $@

@@ -2,7 +2,7 @@
 AI Sandbox engine — the template for .state/compose.yml. It is embedded in the app, not written out.
 Project settings live in sandbox.toml, the network allowlist in allowlist.txt (both in .sandbox/).
 The sandbox app (src/) renders it with the settings from sandbox.toml and this
-machine's facts into .state/compose.yml, the one file docker compose is started with.
+machine's facts into .state/compose.yml, the one file docker compose / podman compose is started with.
 
   host browser ──► 127.0.0.1:<port> ──► gateway ──► desktop (KDE)
                                                       │  internal network:
@@ -14,6 +14,10 @@ Template syntax: Jinja, rendered by MiniJinja (https://github.com/mitsuhiko/mini
 Every text value from sandbox.toml or the host goes through `| q`, which writes it as a quoted
 YAML string, so paths and values can't break the YAML. Numbers and true/false are validated
 by the app and written as-is. Relative paths are relative to the .sandbox folder (--project-directory).
+
+host.runtime is "docker" or "podman". Podman differences: bind mounts get the SELinux label "z", rootless Podman
+keeps the host user's id in the desktop (userns_mode keep-id, so files in the project stay the user's), and NVIDIA
+GPUs are a CDI device.
 -#}
 # Rendered from compose.yml.j2 with sandbox.toml and this machine's settings.
 # Relative paths are relative to the .sandbox folder.
@@ -34,7 +38,7 @@ x-hardened: &hardened
   security_opt: ["no-new-privileges:true"]
   restart: unless-stopped
   volumes:
-    - .:/sandbox:ro   # allowlist.txt (live: "sandbox reload")
+    - {{ ".:/sandbox:ro,z" if host.runtime == "podman" else ".:/sandbox:ro" }}   # allowlist.txt (live: "sandbox reload")
 
 services:
   proxy:
@@ -67,6 +71,10 @@ services:
         {{ t.arg }}: {{ t.value | q }}
       {% endfor %}
     hostname: sandbox
+    {% if host.runtime == "podman" and host.rootless %}
+    userns_mode: "keep-id"   # the host user's id inside; files written to the project stay theirs
+    user: "0:0"              # the image's init starts as root and switches to PUID/PGID
+    {% endif %}
     shm_size: 1gb
     labels:
       sandbox.id: {{ host.id | q }}
@@ -101,7 +109,7 @@ services:
     volumes:
       - home:/config            # persistent home: logins, IDE settings, Toolbox IDEs
       {% for m in mounts %}
-      - {type: bind, source: {{ m.source | q }}, target: {{ m.target | q }}, read_only: {{ "true" if m.read_only else "false" }}}
+      - {type: bind, source: {{ m.source | q }}, target: {{ m.target | q }}, read_only: {{ "true" if m.read_only else "false" }}{{ ", bind: {selinux: z}" if host.runtime == "podman" else "" }}}
       {% endfor %}
     {% if desktop.devices %}
     devices:
@@ -150,7 +158,10 @@ services:
     volumes:
       - models:/root/.ollama    # machine-wide, shared by all projects, kept by "down -v"
     networks: [llm, llm-egress]
-    {% if llm.gpu == "nvidia" %}
+    {% if llm.gpu == "nvidia" and host.runtime == "podman" %}
+    devices:
+      - "nvidia.com/gpu=all"   # CDI (nvidia-ctk cdi generate)
+    {% elif llm.gpu == "nvidia" %}
     deploy:
       resources:
         reservations:

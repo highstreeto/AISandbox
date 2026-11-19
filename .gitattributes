@@ -1,4 +1,6 @@
+* text=auto eol=lf
 sandbox text=auto eol=lf
 *.cmd text eol=crlf
+*.ps1 text eol=crlf
 resources/** text eol=lf
 install/*.sh text eol=lf

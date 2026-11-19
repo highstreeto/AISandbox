@@ -1,8 +1,8 @@
 //! The proxy's allowlist: allow, deny, allowlist, blocked, reload.
 
 use crate::config::allowlist::{AllowOutcome, Allowlist};
-use crate::docker::Docker;
 use crate::project::Project;
+use crate::runtime::Runtime;
 use crate::ui::{Ui, table};
 use anyhow::{Result, bail};
 use regex::Regex;
@@ -13,9 +13,8 @@ use std::sync::LazyLock;
 static REFUSED: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"refused on filtered (?:domain|url) "([^"]+)""#).unwrap());
 
-pub fn allow(d: &Docker, hosts: &[String]) -> Result<i32> {
-    let ui = d.ui;
-    let mut list = Allowlist::load(&d.project.allowlist_path())?;
+pub fn allow(ui: &Ui, rt: &dyn Runtime, hosts: &[String]) -> Result<i32> {
+    let mut list = Allowlist::load(&rt.project().allowlist_path())?;
     let hosts = validate_all(hosts)?;
     let mut t = ui.new_table(&["Host", "Result"]);
     for h in hosts {
@@ -32,12 +31,11 @@ pub fn allow(d: &Docker, hosts: &[String]) -> Result<i32> {
     }
     list.save()?;
     ui.print_table(None, &t, None);
-    reload_proxy(d)
+    reload_proxy(ui, rt)
 }
 
-pub fn deny(d: &Docker, hosts: &[String]) -> Result<i32> {
-    let ui = d.ui;
-    let mut list = Allowlist::load(&d.project.allowlist_path())?;
+pub fn deny(ui: &Ui, rt: &dyn Runtime, hosts: &[String]) -> Result<i32> {
+    let mut list = Allowlist::load(&rt.project().allowlist_path())?;
     let hosts = validate_all(hosts)?;
     let mut t = ui.new_table(&["Host", "Result"]);
     for h in hosts {
@@ -50,7 +48,7 @@ pub fn deny(d: &Docker, hosts: &[String]) -> Result<i32> {
     }
     list.save()?;
     ui.print_table(None, &t, None);
-    reload_proxy(d)
+    reload_proxy(ui, rt)
 }
 
 /// All hosts are checked before anything changes: one bad host leaves the file untouched.
@@ -109,10 +107,9 @@ pub fn show_allowlist(ui: &Ui, project: &Project, all: bool) -> Result<i32> {
     Ok(0)
 }
 
-pub fn blocked(d: &Docker) -> Result<i32> {
-    let ui = d.ui;
+pub fn blocked(ui: &Ui, rt: &dyn Runtime) -> Result<i32> {
     let logs = ui.spin("Reading proxy logs…", || {
-        d.compose(&["logs", "--no-log-prefix", "proxy"])
+        rt.compose_logs_captured(ui, "proxy")
     });
     let hits = refused_hosts(&format!("{}\n{}", logs.stdout, logs.stderr));
     if hits.is_empty() {
@@ -120,7 +117,7 @@ pub fn blocked(d: &Docker) -> Result<i32> {
         return Ok(0);
     }
 
-    let allowed = Allowlist::load(&d.project.allowlist_path())?;
+    let allowed = Allowlist::load(&rt.project().allowlist_path())?;
     let mut t = ui.new_table(&["Count", "Host", "Status"]);
     table::align_right(&mut t, 0);
     for (host, count) in &hits {
@@ -168,13 +165,12 @@ fn refused_hosts(log: &str) -> Vec<(String, usize)> {
     hits
 }
 
-pub fn reload_proxy(d: &Docker) -> Result<i32> {
-    let ui = d.ui;
+pub fn reload_proxy(ui: &Ui, rt: &dyn Runtime) -> Result<i32> {
     let r = ui.spin("Reloading the proxy…", || {
-        d.compose(&["restart", "proxy"])
+        rt.compose_restart(ui, &["proxy"])
     });
     if r.exit_code != 0 {
-        ui.show_output("docker compose restart proxy", &r);
+        ui.show_output(&format!("{} compose restart proxy", rt.program()), &r);
         bail!("Could not restart the proxy.");
     }
     ui.success("Proxy reloaded.");

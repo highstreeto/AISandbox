@@ -48,4 +48,12 @@ chmod 0755 "$D"/sandbox-*.desktop
 
 # 4. ~/project -> project folder
 ln -sfn "$WORKDIR" /config/project && chown -h abc:abc /config/project
+
+# 5. The home belongs to abc: older images ran the tool installers as root with HOME=/config and left
+#    root-owned ~/.cache, ~/.gnupg, ~/.config/opencode in the home volume (KDE can't build its app
+#    database without a writable ~/.cache: empty menu, blank icons). Mounts under /config are left alone.
+mapfile -t mounts < <(awk '$5 ~ "^/config/" {print $5}' /proc/self/mountinfo)
+prune=()
+for m in "${mounts[@]}"; do prune+=(-path "$m" -prune -o); done
+find /config "${prune[@]}" \( \! -user abc -o \! -group abc \) -exec chown -h abc:abc {} +
 exit 0

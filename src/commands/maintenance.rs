@@ -2,11 +2,10 @@
 
 use super::lifecycle;
 use crate::config::{self, BrowserSetting, FILE_NAME, Settings};
-use crate::docker::Docker;
 use crate::engine::{self, embedded};
 use crate::paths::{self, full_path};
-use crate::process;
 use crate::project::{Project, check_old_layout, load_or_create_id, write_state_ignore};
+use crate::runtime::{self, Runtime, RuntimeKind};
 use crate::ui::Ui;
 use anyhow::{Result, bail};
 use console::measure_text_width;
@@ -20,7 +19,7 @@ const PROJECT_FILES: [(&str, &str); 3] = [
 ];
 
 /// Creates `<folder>/.sandbox/` with `sandbox.toml`, `allowlist.txt` and `.gitignore` (files that exist are kept),
-/// the `.state` folder and the engine. Runs without Docker and ignores `SANDBOX_DIR`.
+/// the `.state` folder and the engine. Runs without runtime and ignores `SANDBOX_DIR`.
 pub fn init(ui: &Ui, folder: Option<&str>) -> Result<i32> {
     let cwd = paths::current_dir()?;
     let folder = folder.filter(|f| !f.trim().is_empty()).unwrap_or(".");
@@ -75,27 +74,28 @@ pub fn init(ui: &Ui, folder: Option<&str>) -> Result<i32> {
     Ok(0)
 }
 
-pub fn reset_home(d: &Docker, yes: bool) -> Result<i32> {
-    let ui = d.ui;
+pub fn reset_home(ui: &Ui, rt: &dyn Runtime, yes: bool) -> Result<i32> {
     if !yes {
         if !ui.interactive {
             bail!("Refusing to delete the home volume without confirmation (use --yes).");
         }
         let question = format!(
             "Delete the home volume of {} (logins, IDE settings)?",
-            ui.bold(&d.project.name)
+            ui.bold(&rt.project().name)
         );
         if !ui.confirm(&question) {
             return Ok(0);
         }
     }
-    lifecycle::compose_command(d, "Removing containers", &["down"])?;
-    let vol = format!("{}_home", d.project.name);
+    lifecycle::compose_command(ui, rt, "Removing containers", "down", |rt| {
+        rt.compose_down(ui)
+    })?;
+    let vol = format!("{}_home", rt.project().name);
     let r = ui.spin(&format!("Removing volume {vol}…"), || {
-        process::capture(ui, d.verbose, "docker", &["volume", "rm", &vol])
+        rt.volume_remove(ui, &vol)
     });
     if r.exit_code != 0 {
-        ui.show_output("docker volume rm", &r);
+        ui.show_output(&format!("{} volume rm", rt.program()), &r);
         bail!("Could not remove volume {vol}.");
     }
     ui.success(&format!("Home volume {vol} deleted."));
@@ -126,6 +126,7 @@ pub fn info(ui: &Ui, project: &Project) -> Result<i32> {
                 .map_or("random free port".to_string(), |p| p.to_string()),
         ),
         ("Browser".into(), browser_text(st)),
+        ("Runtime".into(), runtime_text(project)),
         ("LLM".into(), llm_text(st)),
         (
             "Engine".into(),
@@ -201,6 +202,23 @@ pub fn info(ui: &Ui, project: &Project) -> Result<i32> {
         ui.print_table(Some(&ui.bold("Shared folders [[share]]")), &shares, None);
     }
     Ok(0)
+}
+
+/// The runtime commands would use and why, without running it: "Podman (auto)",
+/// "Docker (SANDBOX_RUNTIME=docker): not installed".
+fn runtime_text(project: &Project) -> String {
+    let (setting, from) = match runtime::requested(project) {
+        Ok(r) => r,
+        Err(e) => return e.to_string(),
+    };
+    match (
+        runtime::available(setting),
+        RuntimeKind::from_setting(setting),
+    ) {
+        (Some(kind), _) => format!("{} ({from})", kind.name()),
+        (None, Some(kind)) => format!("{} ({from}): not installed", kind.name()),
+        (None, None) => "neither Podman nor Docker is installed".to_string(),
+    }
 }
 
 /// `[host] browser` and the file it comes from, e.g. `chromium --incognito (sandbox.local.toml)`.

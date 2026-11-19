@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand};
     arg_required_else_help = true
 )]
 pub struct Cli {
-    /// Print the docker commands that are run
+    /// Print the runtime commands that are run
     #[arg(short, long, global = true)]
     pub verbose: bool,
 

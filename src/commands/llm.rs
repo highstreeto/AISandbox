@@ -1,13 +1,14 @@
 //! The local LLM (`[llm]`): preparing and pulling models for `up`, `sandbox llm status|pull|rm|usage`.
 //!
-//! Models live in the machine-wide Docker volume [`MODELS_VOLUME`] (shared by all projects, never removed by `down`
+//! Models live in the machine-wide runtime volume [`MODELS_VOLUME`] (shared by all projects, never removed by `down`
 //! or `reset-home`). Ollama's downloads are started from here (`compose exec ollama ollama pull`); the desktop can't
 //! start them, because the gateway in front of Ollama refuses those endpoints.
 
 use crate::cli::LlmCommand;
 use crate::config::{self, LlmSettings};
-use crate::docker::Docker;
 use crate::process::ProcResult;
+use crate::runtime::Runtime;
+use crate::ui::Ui;
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -20,20 +21,20 @@ const USAGE_LOG: &str = "/var/log/llm/usage.jsonl";
 /// The address of the gateway inside the sandbox.
 pub const ENDPOINT: &str = "http://llm:11434";
 
-pub fn run(d: &Docker, command: LlmCommand) -> Result<i32> {
+pub fn run(ui: &Ui, rt: &dyn Runtime, command: LlmCommand) -> Result<i32> {
     match command {
-        LlmCommand::Status => status(d),
-        LlmCommand::Pull { model } => pull(d, model.as_deref()),
-        LlmCommand::Rm { model, yes } => rm(d, &model, yes),
-        LlmCommand::Usage { days, json, clear } => usage(d, days, json, clear),
+        LlmCommand::Status => status(ui, rt),
+        LlmCommand::Pull { model } => pull(ui, rt, model.as_deref()),
+        LlmCommand::Rm { model, yes } => rm(ui, rt, &model, yes),
+        LlmCommand::Usage { days, json, clear } => usage(ui, rt, days, json, clear),
     }
 }
 
 /// The project's `[llm]`, or an error that says how to turn it on.
-fn need_llm<'a>(d: &'a Docker) -> Result<&'a LlmSettings> {
-    match &d.project.settings.llm {
+fn need_llm(rt: &dyn Runtime) -> Result<&LlmSettings> {
+    match &rt.project().settings.llm {
         Some(llm) => Ok(llm),
-        None if d.project.settings.llm_off_locally => bail!(
+        None if rt.project().settings.llm_off_locally => bail!(
             "The local LLM is switched off on this machine (enabled = false under [llm] in {}).",
             config::LOCAL_FILE_NAME
         ),
@@ -45,32 +46,30 @@ fn need_llm<'a>(d: &'a Docker) -> Result<&'a LlmSettings> {
 }
 
 /// `ollama` must be running for anything that talks to it.
-fn need_running(d: &Docker) -> Result<()> {
-    let running = d
-        .services()?
+fn need_running(ui: &Ui, rt: &dyn Runtime) -> Result<()> {
+    let running = rt
+        .compose_ps(ui)?
         .iter()
         .any(|s| s.service == "ollama" && s.state == "running");
     if !running {
         bail!(
             "The local LLM is not running (start it with: {} up).",
-            d.ui.self_name()
+            ui.self_name()
         );
     }
     Ok(())
 }
 
-/// `docker compose exec -T <service> <command…>`, captured.
-fn exec(d: &Docker, service: &str, command: &[&str]) -> ProcResult {
-    let mut args = vec!["exec", "-T", service];
-    args.extend_from_slice(command);
-    d.compose(&args)
+/// `compose exec -T <service> <command…>`, captured.
+fn exec(ui: &Ui, rt: &dyn Runtime, service: &str, command: &[&str]) -> ProcResult {
+    rt.compose_exec(ui, service, command)
 }
 
 /// The models Ollama has, as the names `ollama list` prints (`qwen3.6:27b`).
-fn installed(d: &Docker) -> Result<Vec<String>> {
-    let r = exec(d, "ollama", &["ollama", "list"]);
+fn installed(ui: &Ui, rt: &dyn Runtime) -> Result<Vec<String>> {
+    let r = exec(ui, rt, "ollama", &["ollama", "list"]);
     if r.exit_code != 0 {
-        d.ui.show_output("ollama list", &r);
+        ui.show_output("ollama list", &r);
         bail!("Could not ask the local LLM which models it has.");
     }
     Ok(parse_list(&r.stdout))
@@ -96,16 +95,12 @@ fn full_tag(model: &str) -> String {
 }
 
 /// Downloads one model with Ollama's own progress display.
-fn download(d: &Docker, model: &str) -> Result<()> {
-    let mut args = vec!["exec"];
-    if !d.ui.interactive {
-        args.push("-T");
-    }
-    args.extend(["ollama", "ollama", "pull", model]);
-    if d.compose_interactive(&args)? != 0 {
+fn download(ui: &Ui, rt: &dyn Runtime, model: &str) -> Result<()> {
+    let tty = ui.interactive;
+    if rt.compose_exec_attached(ui, "ollama", &["ollama", "pull", model], tty)? != 0 {
         bail!(
             "Downloading {model} failed (see the output above). Try again with: {} llm pull {model}",
-            d.ui.self_name()
+            ui.self_name()
         );
     }
     Ok(())
@@ -124,11 +119,11 @@ fn size_note(model: &str) -> &'static str {
 }
 
 /// `up`: pulls the project's models that the volume doesn't have yet.
-pub fn pull_missing(d: &Docker) -> Result<()> {
-    let Some(llm) = &d.project.settings.llm else {
+pub fn pull_missing(ui: &Ui, rt: &dyn Runtime) -> Result<()> {
+    let Some(llm) = &rt.project().settings.llm else {
         return Ok(());
     };
-    let have: Vec<String> = installed(d)?.iter().map(|m| full_tag(m)).collect();
+    let have: Vec<String> = installed(ui, rt)?.iter().map(|m| full_tag(m)).collect();
     let missing: Vec<String> = llm
         .all_models()
         .into_iter()
@@ -137,7 +132,7 @@ pub fn pull_missing(d: &Docker) -> Result<()> {
     if missing.is_empty() {
         return Ok(());
     }
-    d.ui.info(&format!(
+    ui.info(&format!(
         "Downloading {} into the shared volume {MODELS_VOLUME}; this happens once per machine and can take a while.",
         if missing.len() == 1 {
             "one model".to_string()
@@ -146,16 +141,16 @@ pub fn pull_missing(d: &Docker) -> Result<()> {
         }
     ));
     for m in &missing {
-        d.ui.rule(&format!("Pulling {m}{}", size_note(m)));
-        download(d, m)?;
-        d.ui.plain_rule();
+        ui.rule(&format!("Pulling {m}{}", size_note(m)));
+        download(ui, rt, m)?;
+        ui.plain_rule();
     }
     Ok(())
 }
 
 /// What to do when `up` failed and the log looks like a missing GPU driver for the container.
-pub fn gpu_hint(d: &Docker, up: &ProcResult) -> Option<String> {
-    let llm = d.project.settings.llm.as_ref()?;
+pub fn gpu_hint(rt: &dyn Runtime, up: &ProcResult) -> Option<String> {
+    let llm = rt.project().settings.llm.as_ref()?;
     let text = format!("{}\n{}", up.stdout, up.stderr).to_lowercase();
     let mentions_gpu = [
         "could not select device driver",
@@ -169,17 +164,15 @@ pub fn gpu_hint(d: &Docker, up: &ProcResult) -> Option<String> {
         return None;
     }
     Some(format!(
-        "The local LLM could not get the {} GPU. Linux: install the NVIDIA Container Toolkit (AMD: the ROCm driver). \
-         Windows: use Docker Desktop with the WSL2 backend and a current NVIDIA driver for Windows. \
-         To run on the CPU instead (slow), set gpu = \"none\" under [llm] in {}.",
+        "The local LLM could not get the {} GPU. {} To run on the CPU instead (slow), set gpu = \"none\" under [llm] in {}.",
         llm.gpu.name(),
+        rt.gpu_hint(),
         config::LOCAL_FILE_NAME
     ))
 }
 
-fn status(d: &Docker) -> Result<i32> {
-    let ui = d.ui;
-    let llm = need_llm(d)?;
+fn status(ui: &Ui, rt: &dyn Runtime) -> Result<i32> {
+    let llm = need_llm(rt)?;
     let source = |s: config::SettingSource| match s.file_name() {
         Some(f) => format!(" ({f})"),
         None => " (built-in default)".to_string(),
@@ -207,9 +200,9 @@ fn status(d: &Docker) -> Result<i32> {
         );
     }
     ui.print_panel("Local LLM", &lines, None, false);
-    need_running(d)?;
+    need_running(ui, rt)?;
     for (title, command) in [("Models", "list"), ("Loaded now", "ps")] {
-        let r = exec(d, "ollama", &["ollama", command]);
+        let r = exec(ui, rt, "ollama", &["ollama", command]);
         if r.exit_code != 0 {
             ui.show_output(&format!("ollama {command}"), &r);
             bail!("Could not ask the local LLM (ollama {command}).");
@@ -225,46 +218,46 @@ fn source_gpu(llm: &LlmSettings) -> String {
         .map_or(String::new(), |f| format!(" ({f})"))
 }
 
-fn pull(d: &Docker, model: Option<&str>) -> Result<i32> {
-    let llm = need_llm(d)?;
+fn pull(ui: &Ui, rt: &dyn Runtime, model: Option<&str>) -> Result<i32> {
+    let llm = need_llm(rt)?;
     let models = match model {
         Some(m) => vec![config::parse_model_tag(m)?],
         None => llm.all_models(),
     };
-    need_running(d)?;
+    need_running(ui, rt)?;
     for m in &models {
-        d.ui.rule(&format!("Pulling {m}{}", size_note(m)));
-        download(d, m)?;
-        d.ui.plain_rule();
+        ui.rule(&format!("Pulling {m}{}", size_note(m)));
+        download(ui, rt, m)?;
+        ui.plain_rule();
     }
-    d.ui.success(&format!("Models ready: {}.", models.join(", ")));
+    ui.success(&format!("Models ready: {}.", models.join(", ")));
     Ok(0)
 }
 
-fn rm(d: &Docker, model: &str, yes: bool) -> Result<i32> {
-    need_llm(d)?;
+fn rm(ui: &Ui, rt: &dyn Runtime, model: &str, yes: bool) -> Result<i32> {
+    need_llm(rt)?;
     let model = config::parse_model_tag(model)?;
     if !yes {
-        if !d.ui.interactive {
+        if !ui.interactive {
             bail!("Refusing to delete a model without confirmation (use --yes).");
         }
         let question = format!(
             "Delete the model {} from {MODELS_VOLUME}? It is shared by all projects on this machine.",
-            d.ui.bold(&model)
+            ui.bold(&model)
         );
-        if !d.ui.confirm(&question) {
+        if !ui.confirm(&question) {
             return Ok(0);
         }
     }
-    need_running(d)?;
-    let r = d.ui.spin(&format!("Deleting {model}…"), || {
-        exec(d, "ollama", &["ollama", "rm", &model])
+    need_running(ui, rt)?;
+    let r = ui.spin(&format!("Deleting {model}…"), || {
+        exec(ui, rt, "ollama", &["ollama", "rm", &model])
     });
     if r.exit_code != 0 {
-        d.ui.show_output("ollama rm", &r);
+        ui.show_output("ollama rm", &r);
         bail!("Could not delete {model}.");
     }
-    d.ui.success(&format!("Deleted {model}."));
+    ui.success(&format!("Deleted {model}."));
     Ok(0)
 }
 
@@ -346,12 +339,11 @@ pub fn day_before(unix_seconds: u64, days_ago: u64) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
-fn usage(d: &Docker, days: Option<u32>, as_json: bool, clear: bool) -> Result<i32> {
-    let ui = d.ui;
-    need_llm(d)?;
-    need_running(d)?;
+fn usage(ui: &Ui, rt: &dyn Runtime, days: Option<u32>, as_json: bool, clear: bool) -> Result<i32> {
+    need_llm(rt)?;
+    need_running(ui, rt)?;
     if clear {
-        let r = exec(d, "llm", &["sh", "-c", &format!(": > {USAGE_LOG}")]);
+        let r = exec(ui, rt, "llm", &["sh", "-c", &format!(": > {USAGE_LOG}")]);
         if r.exit_code != 0 {
             ui.show_output("clear the usage log", &r);
             bail!("Could not clear the usage log.");
@@ -359,7 +351,7 @@ fn usage(d: &Docker, days: Option<u32>, as_json: bool, clear: bool) -> Result<i3
         ui.success("Usage log cleared.");
         return Ok(0);
     }
-    let r = exec(d, "llm", &["cat", USAGE_LOG]);
+    let r = exec(ui, rt, "llm", &["cat", USAGE_LOG]);
     if r.exit_code != 0 {
         ui.show_output("read the usage log", &r);
         bail!("Could not read the usage log.");

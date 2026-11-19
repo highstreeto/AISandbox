@@ -15,7 +15,9 @@ run first, then the end-to-end tests in `tests/e2e`).
 ## How it works
 
 - **`fake_docker/main.rs`** is a tiny program, a second binary of the same package (`fake-docker`, `test = false`).
-  The test fixture links it (Unix) or copies it (Windows) as `docker[.exe]` and `xdg-open[.exe]`. Each call appends
+  The test fixture links it (Unix) or copies it (Windows) as `docker[.exe]` and `xdg-open[.exe]`, and in a second
+  folder as `podman[.exe]` and `nvidia-ctk[.exe]` (only on PATH when a test puts it there). Every run sets
+  `SANDBOX_RUNTIME=docker` unless the test chooses (`RunOpts::runtime`), so a Podman on this machine can't change the calls. Each call appends
   `{"name", "args"}` as a JSON line to `$FAKE_DOCKER_LOG`. Its output and exit code come from the rules in
   `$FAKE_DOCKER_RULES`: the first rule whose `when` is a substring of the joined arguments wins.
 - **The app and the fake docker** are built by Cargo along with the tests. Cargo gives the test program their paths as
@@ -41,4 +43,5 @@ run first, then the end-to-end tests in `tests/e2e`).
 | `e2e/errors.rs` | Docker missing or not running, failing docker calls, invalid `sandbox.toml` (every check) / hosts, old `sandbox.yml` |
 | `e2e/compose_file.rs` | The generated compose file: exact text, each setting, escaping, shares |
 | `e2e/engine.rs` | The engine written to `.state/desktop` and `.state/proxy`: headers, manifest, hand edits, leftovers, old `engine/` layout, `info` Engine row |
+| `e2e/runtime_select.rs` | Docker or Podman (auto, `[host] runtime`, `SANDBOX_RUNTIME`), the Podman calls, its compose file parts, the NVIDIA CDI check, the `info` Runtime row |
 | `e2e/init.rs` | `sandbox init`: created and kept files, `.state`, parent `.sandbox` warning, missing folder, no Docker |
