@@ -12,9 +12,10 @@ pub struct ServiceState {
     pub ports: String,
 }
 
-/// The services sorted by name, or an error about the unreadable output.
-pub fn sorted(services: Result<Vec<ServiceState>>) -> Result<Vec<ServiceState>> {
-    let mut services = services.context("Could not read the output of docker compose ps")?;
+/// The services sorted by name, or an error about the unreadable output of `<program> compose ps`.
+pub fn sorted(program: &str, services: Result<Vec<ServiceState>>) -> Result<Vec<ServiceState>> {
+    let mut services =
+        services.with_context(|| format!("Could not read the output of {program} compose ps"))?;
     services.sort_by(|a, b| a.service.as_bytes().cmp(b.service.as_bytes()));
     Ok(services)
 }

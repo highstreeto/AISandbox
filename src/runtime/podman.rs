@@ -1,7 +1,7 @@
 //! Podman with `podman compose`, which hands the compose file to docker-compose (through Podman's socket) or to
 //! podman-compose, whichever is installed.
 
-use super::{Ctx, Runtime, RuntimeInfo, ServiceState, ps};
+use super::{Ctx, Runtime, RuntimeInfo, RuntimeKind, ServiceState, ps};
 use crate::config::LlmGpu;
 use crate::process;
 use crate::ui::Ui;
@@ -50,12 +50,8 @@ impl Runtime for Podman<'_> {
         &self.ctx
     }
 
-    fn name(&self) -> &'static str {
-        "Podman"
-    }
-
-    fn program(&self) -> &'static str {
-        "podman"
+    fn kind(&self) -> RuntimeKind {
+        RuntimeKind::Podman
     }
 
     /// No "Executing external compose provider" banner on every call.
@@ -93,7 +89,7 @@ impl Runtime for Podman<'_> {
         let version = words.next().unwrap_or_default().to_string();
         let rootless = words.next() == Some("true");
         Ok(RuntimeInfo {
-            kind: "podman",
+            kind: self.kind(),
             version,
             rootless,
         })
@@ -124,18 +120,21 @@ impl Runtime for Podman<'_> {
         if r.exit_code != 0 || r.stdout.trim().is_empty() {
             return Ok(Vec::new());
         }
-        ps::sorted(ps::parse_entries(&r.stdout).map(|entries| {
-            entries
-                .iter()
-                .map(|e| {
-                    if e.get("Service").is_some() {
-                        ps::to_state(e)
-                    } else {
-                        from_podman_ps(e)
-                    }
-                })
-                .collect()
-        }))
+        ps::sorted(
+            self.program(),
+            ps::parse_entries(&r.stdout).map(|entries| {
+                entries
+                    .iter()
+                    .map(|e| {
+                        if e.get("Service").is_some() {
+                            ps::to_state(e)
+                        } else {
+                            from_podman_ps(e)
+                        }
+                    })
+                    .collect()
+            }),
+        )
     }
 
     /// The NVIDIA GPU needs a CDI spec on a Linux host; in a Podman machine it lives in the VM (no check).

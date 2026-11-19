@@ -19,6 +19,7 @@ use crate::project::Project;
 use crate::ui::Ui;
 use anyhow::{Result, bail};
 use camino::Utf8Path;
+use serde::Serialize;
 
 /// Overrides `[host] runtime` for one call or one shell: `auto`, `docker` or `podman`.
 pub const ENV_VAR: &str = "SANDBOX_RUNTIME";
@@ -31,12 +32,46 @@ pub struct Ctx<'a> {
     pub verbose: bool,
 }
 
+/// Which container runtime; the compose template gets it as `host.runtime` (`"docker"` / `"podman"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuntimeKind {
+    Docker,
+    Podman,
+}
+
+impl RuntimeKind {
+    /// For messages: "Docker".
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Docker => "Docker",
+            Self::Podman => "Podman",
+        }
+    }
+
+    /// The program on `PATH`: "docker".
+    pub fn program(self) -> &'static str {
+        match self {
+            Self::Docker => "docker",
+            Self::Podman => "podman",
+        }
+    }
+
+    /// The runtime a setting names, or `None` for `auto` (see [`available`]).
+    pub fn from_setting(setting: RuntimeSetting) -> Option<Self> {
+        match setting {
+            RuntimeSetting::Auto => None,
+            RuntimeSetting::Docker => Some(Self::Docker),
+            RuntimeSetting::Podman => Some(Self::Podman),
+        }
+    }
+}
+
 /// What a running runtime reports about itself; the compose template gets it as `host.runtime` /
 /// `host.rootless`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeInfo {
-    /// `docker` or `podman`.
-    pub kind: &'static str,
+    pub kind: RuntimeKind,
     pub version: String,
     /// Containers run in the user's own user namespace (rootless Podman).
     pub rootless: bool,
@@ -44,10 +79,16 @@ pub struct RuntimeInfo {
 
 pub trait Runtime: Sync {
     fn ctx(&self) -> &Ctx<'_>;
+    fn kind(&self) -> RuntimeKind;
+
     /// For messages: "Docker".
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &'static str {
+        self.kind().name()
+    }
     /// The program on `PATH`: "docker".
-    fn program(&self) -> &'static str;
+    fn program(&self) -> &'static str {
+        self.kind().program()
+    }
 
     fn project(&self) -> &Project {
         self.ctx().project
@@ -166,7 +207,7 @@ pub trait Runtime: Sync {
         if r.exit_code != 0 || r.stdout.trim().is_empty() {
             return Ok(Vec::new());
         }
-        ps::sorted(ps::parse_ps(&r.stdout))
+        ps::sorted(self.program(), ps::parse_ps(&r.stdout))
     }
 
     /// `host:port` that a container port is published on, if it is.
@@ -303,31 +344,28 @@ pub fn requested(project: &Project) -> Result<(RuntimeSetting, String)> {
 /// The runtime for this project: the one asked for, or with `auto` Podman if it is installed, else Docker.
 pub fn select<'a>(ctx: Ctx<'a>) -> Result<Box<dyn Runtime + 'a>> {
     let (setting, from) = requested(ctx.project)?;
-    let docker = || -> Box<dyn Runtime + 'a> { Box::new(Docker::new(ctx)) };
-    let podman = || -> Box<dyn Runtime + 'a> { Box::new(Podman::new(ctx)) };
-    let rt = match setting {
-        RuntimeSetting::Docker => docker(),
-        RuntimeSetting::Podman => podman(),
-        RuntimeSetting::Auto => match available(RuntimeSetting::Auto) {
-            Some(RuntimeSetting::Podman) => podman(),
-            Some(_) => docker(),
+    let kind = match RuntimeKind::from_setting(setting) {
+        Some(kind) => kind,
+        None => match available(setting) {
+            Some(kind) => kind,
             None => bail!("Neither Podman nor Docker is installed."),
         },
     };
-    if !process::on_path(rt.program()) {
-        bail!("{} is not installed ({from}).", rt.name());
+    if !process::on_path(kind.program()) {
+        bail!("{} is not installed ({from}).", kind.name());
     }
-    Ok(rt)
+    Ok(match kind {
+        RuntimeKind::Docker => Box::new(Docker::new(ctx)),
+        RuntimeKind::Podman => Box::new(Podman::new(ctx)),
+    })
 }
 
 /// The runtime `setting` resolves to on this machine, if it is installed. `Auto` prefers Podman.
-pub fn available(setting: RuntimeSetting) -> Option<RuntimeSetting> {
-    let installed = |r: RuntimeSetting| process::on_path(r.name()).then_some(r);
-    match setting {
-        RuntimeSetting::Auto => {
-            installed(RuntimeSetting::Podman).or_else(|| installed(RuntimeSetting::Docker))
-        }
-        r => installed(r),
+pub fn available(setting: RuntimeSetting) -> Option<RuntimeKind> {
+    let installed = |k: RuntimeKind| process::on_path(k.program()).then_some(k);
+    match RuntimeKind::from_setting(setting) {
+        Some(kind) => installed(kind),
+        None => installed(RuntimeKind::Podman).or_else(|| installed(RuntimeKind::Docker)),
     }
 }
 

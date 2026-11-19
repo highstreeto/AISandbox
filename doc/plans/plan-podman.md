@@ -77,7 +77,7 @@ Add `host.runtime` (from `Runtime::template_name()`) to the template context and
 - **host-gateway**: `host.docker.internal:host-gateway` works with Podman ≥ 5; add `host.containers.internal` too, or skip for Podman < 5 (check the version from the `info` call).
 - **NVIDIA GPU**: Podman uses CDI: `devices: ["nvidia.com/gpu=all"]` instead of the `deploy.resources.reservations` block. AMD (`/dev/kfd`, `/dev/dri`) is unchanged.
   - What is needed on the host is the **NVIDIA Container Toolkit** (`nvidia-container-toolkit`) plus a generated CDI spec, not the CUDA Toolkit. CUDA comes inside the `ollama/ollama` image; the host only needs the driver. Docker needs the same toolkit today (registered as a Docker runtime instead of CDI).
-  - **Check, don't install.** Installing needs root, a distro-specific package repo and a driver match, so the app should not do it. Instead `Podman::compose_up`, when `llm.gpu = "nvidia"` (the default) and on Linux, checks for the CDI device first: `nvidia-ctk cdi list` contains `nvidia.com/gpu=all`, or as a fallback, a spec file in `/etc/cdi/` or `/var/run/cdi/`. If it's missing, it stops before starting with: "The NVIDIA GPU is not available to Podman. Install nvidia-container-toolkit and run `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`, or set gpu = \"none\" under [llm] in sandbox.local.toml."
+  - **Check, don't install.** Installing needs root, a distro-specific package repo and a driver match, so the app should not do it. Instead `Podman::compose_up`, when `llm.gpu = "nvidia"` (the default) and on Linux, checks for the CDI device first: `nvidia-ctk cdi list` contains `nvidia.com/gpu=all`, or as a fallback, a spec file in `/etc/cdi/` or `/var/run/cdi/`. If it's missing, it stops before starting with: "The NVIDIA GPU is not available to Podman. Install nvidia-container-toolkit and run `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`, or set gpu = \"none\" under `[llm]` in sandbox.local.toml."
   - In a `podman machine` (macOS/Windows) the spec lives inside the VM, so there is no pre-check; the existing after-failure `gpu_hint` (Podman variant) covers it.
 - `restart: unless-stopped` only survives reboots with `podman-restart.service`. Document it; no code needed.
 
@@ -121,9 +121,11 @@ and refactors from trying it. Differences and details worth knowing:
 - **Trait.** Besides the operations listed above, it has `compose_exec_attached` (`llm pull` with Ollama's progress),
   `volume_exists`, and the plumbing the defaults are built on: `run` (`<program> <args>`), `compose` (captured; `echo`
   also shows the output as it arrives), `compose_attached`, the free function `compose_base`, and the hooks
-  `captured_flags`, `env`, `captured_env`, `not_running_message`. `select` returns a `Box<dyn Runtime + 'a>` (built
-  by `of_kind`, which `info` uses for the names too); `need_runtime` returns the `RuntimeInfo` (`version`,
-  `rootless`), and `engine::compose::generate(project, rt.program(), &info)` renders the template with it.
+  `captured_flags`, `env`, `captured_env`, `not_running_message`. An implementation names its `RuntimeKind`
+  (`Docker` / `Podman`: `name()`, `program()`, serialized as `docker` / `podman`), and `name()` / `program()` default
+  to it. `select` returns a `Box<dyn Runtime + 'a>`; `available` (also used by `info`) returns the `RuntimeKind` a
+  setting resolves to. `need_runtime` returns the `RuntimeInfo` (`kind`, `version`, `rootless`) that
+  `engine::compose::generate` takes.
 - **`Ctx` is `{ project, verbose }`.** The `Ui` is not stored: every operation that runs a program takes `ui: &Ui`.
 - **NVIDIA check.** Not inside `compose_up` but a separate hook `check_before_up`, called at the start of `up` and
   `rebuild`, so a missing CDI spec stops the command before a long image build. Linux only: `nvidia-ctk cdi list` must

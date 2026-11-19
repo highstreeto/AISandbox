@@ -1,6 +1,6 @@
 //! Docker (Docker Desktop, or the Docker Engine on Linux) with the compose plugin.
 
-use super::{Ctx, Runtime, RuntimeInfo};
+use super::{Ctx, Runtime, RuntimeInfo, RuntimeKind};
 use crate::ui::Ui;
 use anyhow::{Result, bail};
 
@@ -19,12 +19,8 @@ impl Runtime for Docker<'_> {
         &self.ctx
     }
 
-    fn name(&self) -> &'static str {
-        "Docker"
-    }
-
-    fn program(&self) -> &'static str {
-        "docker"
+    fn kind(&self) -> RuntimeKind {
+        RuntimeKind::Docker
     }
 
     fn captured_flags(&self) -> &'static [&'static str] {
@@ -41,7 +37,7 @@ impl Runtime for Docker<'_> {
             bail!(self.not_running_message());
         }
         Ok(RuntimeInfo {
-            kind: "docker",
+            kind: self.kind(),
             version: r.stdout.trim().to_string(),
             rootless: false,
         })

@@ -8,7 +8,7 @@ use crate::engine::{self, embedded};
 use crate::paths;
 use crate::process::user_ids;
 use crate::project::{Project, write_state_ignore};
-use crate::runtime::RuntimeInfo;
+use crate::runtime::{RuntimeInfo, RuntimeKind};
 use anyhow::{Result, anyhow};
 use minijinja::value::{Serde, Value, ValueKind};
 use minijinja::{AutoEscape, Environment, UndefinedBehavior, syntax::SyntaxConfig};
@@ -42,7 +42,7 @@ struct Llm {
 #[derive(Debug, Serialize)]
 struct Host {
     /// `docker` or `podman`.
-    runtime: String,
+    runtime: RuntimeKind,
     /// Rootless Podman: the desktop keeps the host user's id (`userns_mode: keep-id`).
     rootless: bool,
     id: String,
@@ -180,7 +180,7 @@ fn model(project: &Project, runtime: &RuntimeInfo) -> Model {
     let (uid, gid) = user_ids();
     Model {
         host: Host {
-            runtime: runtime.kind.to_string(),
+            runtime: runtime.kind,
             rootless: runtime.rootless,
             id: project.id.clone(),
             workdir: project.work_dir.clone(),
@@ -294,7 +294,7 @@ mod tests {
     fn empty_model() -> Model {
         Model {
             host: Host {
-                runtime: "docker".into(),
+                runtime: RuntimeKind::Docker,
                 rootless: false,
                 id: "x\"y".into(),
                 workdir: String::new(),

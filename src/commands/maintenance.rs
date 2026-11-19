@@ -1,11 +1,11 @@
 //! init, reset-home and info.
 
 use super::lifecycle;
-use crate::config::{self, BrowserSetting, FILE_NAME, RuntimeSetting, Settings};
+use crate::config::{self, BrowserSetting, FILE_NAME, Settings};
 use crate::engine::{self, embedded};
 use crate::paths::{self, full_path};
 use crate::project::{Project, check_old_layout, load_or_create_id, write_state_ignore};
-use crate::runtime::{self, Runtime};
+use crate::runtime::{self, Runtime, RuntimeKind};
 use crate::ui::Ui;
 use anyhow::{Result, bail};
 use console::measure_text_width;
@@ -204,7 +204,6 @@ pub fn info(ui: &Ui, project: &Project) -> Result<i32> {
     Ok(0)
 }
 
-/// `[host] browser` and the file it comes from, e.g. `chromium --incognito (sandbox.local.toml)`.
 /// The runtime commands would use and why, without running it: "Podman (auto)",
 /// "Docker (SANDBOX_RUNTIME=docker): not installed".
 fn runtime_text(project: &Project) -> String {
@@ -212,17 +211,17 @@ fn runtime_text(project: &Project) -> String {
         Ok(r) => r,
         Err(e) => return e.to_string(),
     };
-    let label = |r: RuntimeSetting| match r {
-        RuntimeSetting::Podman => "Podman",
-        _ => "Docker",
-    };
-    match (runtime::available(setting), setting) {
-        (Some(r), _) => format!("{} ({from})", label(r)),
-        (None, RuntimeSetting::Auto) => "neither Podman nor Docker is installed".to_string(),
-        (None, r) => format!("{} ({from}): not installed", label(r)),
+    match (
+        runtime::available(setting),
+        RuntimeKind::from_setting(setting),
+    ) {
+        (Some(kind), _) => format!("{} ({from})", kind.name()),
+        (None, Some(kind)) => format!("{} ({from}): not installed", kind.name()),
+        (None, None) => "neither Podman nor Docker is installed".to_string(),
     }
 }
 
+/// `[host] browser` and the file it comes from, e.g. `chromium --incognito (sandbox.local.toml)`.
 fn browser_text(st: &Settings) -> String {
     let what = match &st.browser {
         BrowserSetting::Default => "system default".to_string(),
