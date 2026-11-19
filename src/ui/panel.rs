@@ -44,7 +44,7 @@ pub fn render(
             .apply_to(format!("{}╮", "─".repeat(fill)))
             .to_string(),
     );
-    out.push('\n');
+    out.push_str("\r\n");
     for line in lines {
         let pad = inner - 2 - measure_text_width(line);
         out.push_str(&border.apply_to("│").to_string());
@@ -52,14 +52,14 @@ pub fn render(
         out.push_str(line);
         out.push_str(&" ".repeat(pad + 1));
         out.push_str(&border.apply_to("│").to_string());
-        out.push('\n');
+        out.push_str("\r\n");
     }
     out.push_str(
         &border
             .apply_to(format!("╰{}╯", "─".repeat(inner)))
             .to_string(),
     );
-    out.push('\n');
+    out.push_str("\r\n");
     out
 }
 
@@ -72,7 +72,7 @@ mod tests {
         let plain = Style::new();
         let lines = vec!["abc".to_string(), "abcdef".to_string()];
         let text = render("T", &plain, &plain, &lines, 80, false);
-        assert_eq!(text, "╭─ T ────╮\n│ abc    │\n│ abcdef │\n╰────────╯\n");
+        assert_eq!(text, "╭─ T ────╮\r\n│ abc    │\r\n│ abcdef │\r\n╰────────╯\r\n");
     }
 
     #[test]

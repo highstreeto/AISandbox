@@ -235,13 +235,13 @@ fn live_up(ui: &Ui, rt: &dyn Runtime) -> Result<ProcResult> {
                 let _ = term.clear_last_lines(drawn);
             }
             drawn = table.lines().count();
-            println!("{table}");
+            print!("{table}\r\n");
             match rx.recv_timeout(Duration::from_secs(1)) {
                 Ok(result) => {
                     // the final state
                     let table = live_table(ui, rt, started)?;
                     let _ = term.clear_last_lines(drawn);
-                    println!("{table}");
+                    print!("{table}\r\n");
                     return Ok(result);
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -272,5 +272,7 @@ fn live_table(ui: &Ui, rt: &dyn Runtime, started: Instant) -> Result<String> {
             ui.health(&s.health, &s.state),
         ]);
     }
-    Ok(format!("{title}\n{t}"))
+
+    let table_str = t.to_string().replace("\n", "\r\n");
+    Ok(format!("{title}\r\n{table_str}"))
 }
