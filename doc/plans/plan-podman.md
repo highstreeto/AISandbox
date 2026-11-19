@@ -114,22 +114,30 @@ Add `host.runtime` (from `Runtime::template_name()`) to the template context and
 
 ## As built
 
-Everything above is implemented, in two commits: `refactor: move docker.rs into runtime/ behind a Runtime trait` (Docker
-only, every existing e2e test unchanged and green) and `feat: support Podman as container runtime`. Differences and
-details worth knowing:
+Everything above is implemented: first `refactor: move docker.rs into runtime/ behind a Runtime trait` (Docker only,
+every existing e2e test unchanged and green), then `feat: support Podman as container runtime`, then follow-up fixes
+and refactors from trying it. Differences and details worth knowing:
 
 - **Trait.** Besides the operations listed above, it has `compose_exec_attached` (`llm pull` with Ollama's progress),
-  and the plumbing the defaults are built on: `run` (`<program> <args>`), `compose` (captured), `compose_attached`,
-  `compose_base`, and the hooks `captured_flags`, `env`, `captured_env`, `not_running_message`. `select` returns a
-  `Box<dyn Runtime + 'a>`; `need_runtime` returns the `RuntimeInfo` (`kind`, `version`, `rootless`) that
-  `engine::compose::generate` now takes.
+  `volume_exists`, and the plumbing the defaults are built on: `run` (`<program> <args>`), `compose` (captured; `echo`
+  also shows the output as it arrives), `compose_attached`, the free function `compose_base`, and the hooks
+  `captured_flags`, `env`, `captured_env`, `not_running_message`. `select` returns a `Box<dyn Runtime + 'a>` (built
+  by `of_kind`, which `info` uses for the names too); `need_runtime` returns the `RuntimeInfo` (`version`,
+  `rootless`), and `engine::compose::generate(project, rt.program(), &info)` renders the template with it.
+- **`Ctx` is `{ project, verbose }`.** The `Ui` is not stored: every operation that runs a program takes `ui: &Ui`.
 - **NVIDIA check.** Not inside `compose_up` but a separate hook `check_before_up`, called at the start of `up` and
   `rebuild`, so a missing CDI spec stops the command before a long image build. Linux only: `nvidia-ctk cdi list` must
   list `nvidia.com/gpu=all`; without `nvidia-ctk`, any spec under `/etc/cdi` or `/var/run/cdi` naming
   `nvidia.com/gpu` counts. Nothing is installed.
 - **Colours / banner.** Podman gets no `--ansi never` (podman-compose doesn't know it). Captured calls set
   `COMPOSE_ANSI=never` and `NO_COLOR=1` instead, and every call sets `PODMAN_COMPOSE_WARNING_LOGS=false` (no
-  "Executing external compose provider" banner). `process::capture_env` / `interactive_env` were added for this.
+  "Executing external compose provider" banner). `process::capture` and `process::interactive` take the extra
+  environment variables for this; `capture` also takes `echo`.
+- **`-v` and `up`.** With `-v` there is no live table: `compose up` is captured and echoed as it runs (`echo`), and
+  its output isn't shown a second time when it fails.
+- **Models volume.** `up` / `rebuild` run `volume inspect sandbox-llm-models` and create the volume only if it is
+  missing: `podman volume create` fails for an existing volume, where Docker's is idempotent. This adds one call
+  for Docker too.
 - **Rootless.** `podman info --format "{{.Version.Version}} {{.Host.Security.Rootless}}"`. Only rootless Podman gets
   `userns_mode: "keep-id"`, together with `user: "0:0"`, because keep-id would otherwise start the container as the
   host user and the image's init must start as root (it then switches to PUID/PGID, the host ids). Rootful Podman
@@ -138,9 +146,10 @@ details worth knowing:
   the project folder and every `[[share]]` on SELinux hosts, so don't share system folders or the whole home.
 - **host-gateway.** Unchanged (`host.docker.internal:host-gateway`); it needs a Podman that understands
   `host-gateway` (5.x). No version check.
-- **Docker output is byte-identical.** The compose file, the calls and the messages, except "Docker is not installed."
-  which now names where Docker was chosen (`(SANDBOX_RUNTIME=docker)`, `(runtime = "docker" in sandbox.local.toml)`).
-  With `auto` and neither installed: "Neither Podman nor Docker is installed."
+- **Docker output is unchanged** (the compose file, the calls and the messages), except: the `volume inspect` call
+  above; "Docker is not installed." now names where Docker was chosen (`(SANDBOX_RUNTIME=docker)`,
+  `(runtime = "docker" in sandbox.local.toml)`); with `auto` and neither installed: "Neither Podman nor Docker is
+  installed."; failed-call panels and errors name the program (`docker compose …`, `podman compose …`).
 - **`info`.** A **Runtime** row with the runtime and why (`Podman (auto)`, `Docker (SANDBOX_RUNTIME=docker)`,
   `… : not installed`). No version: `info` runs no container commands.
 - **Tests.** The fixture links the fake as `podman` and `nvidia-ctk` in a second folder and sets
@@ -148,6 +157,10 @@ details worth knowing:
   the selection rules, Podman calls (`status`, `up`, `reset-home`), podman-compose's `ps` JSON, the rootless and
   rootful compose file, the CDI device and check (Linux only), and the `info` row. Unit tests: `[host] runtime`
   parsing, podman `ps` entries.
+- **Home ownership (not Podman-specific, found while testing).** `sandbox-install` runs the tool installers with
+  `HOME=/root`, so they no longer leave root-owned `~/.cache`, `~/.gnupg`, `~/.config/opencode` in the home volume
+  (KDE's app menu stays empty without a writable `~/.cache`). `50-sandbox` gives everything in `/config` not owned
+  by `abc` back to `abc`, skipping mounts under `/config`, to repair homes from older images.
 - **Not verified on a real host.** Worth checking first: `podman compose` with docker-compose as provider (`up --wait`,
   `port`, `exec -T`), then with podman-compose, which may not support `--project-directory`, `--wait` or
   `port`/`ps --format json` the way docker-compose does; file ownership in the project after the agent writes files;
