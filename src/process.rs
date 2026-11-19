@@ -27,8 +27,14 @@ impl ProcResult {
 }
 
 /// Runs a process with its output captured and no input. A program that can't be started gives exit code 127.
-pub fn capture<S: AsRef<str>>(ui: &Ui, verbose: bool, file: &str, args: &[S]) -> ProcResult {
-    capture_env(ui, verbose, file, args, &[])
+pub fn capture<S: AsRef<str>>(
+    ui: &Ui,
+    verbose: bool,
+    file: &str,
+    args: &[S],
+    echo: bool,
+) -> ProcResult {
+    capture_env(ui, verbose, file, args, &[], echo)
 }
 
 /// [`capture`] with extra environment variables for the child.
@@ -38,26 +44,64 @@ pub fn capture_env<S: AsRef<str>>(
     file: &str,
     args: &[S],
     envs: &[(&str, &str)],
+    echo: bool,
 ) -> ProcResult {
     trace(ui, verbose, file, args);
-    let output = Command::new(file)
-        .args(args.iter().map(AsRef::as_ref))
+    let mut cmd = Command::new(file);
+    cmd.args(args.iter().map(AsRef::as_ref))
         .envs(envs.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output();
-    match output {
-        Ok(o) => ProcResult {
-            exit_code: exit_code(o.status),
-            stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
-        },
-        Err(e) => ProcResult {
-            exit_code: 127,
-            stdout: String::new(),
-            stderr: e.to_string(),
-        },
+        .stderr(Stdio::piped());
+    if echo {
+        let child = cmd.spawn();
+        match child {
+            Ok(mut o) => {
+                let out_t = tee(o.stdout.take().unwrap(), std::io::stdout());
+                let err_t = tee(o.stderr.take().unwrap(), std::io::stderr());
+
+                let status = o.wait();
+                match status {
+                    Ok(status) => ProcResult {
+                        exit_code: exit_code(status),
+                        stdout: out_t
+                            .join()
+                            .unwrap()
+                            .map(|b| String::from_utf8_lossy(&b).into_owned())
+                            .unwrap(),
+                        stderr: err_t
+                            .join()
+                            .unwrap()
+                            .map(|b| String::from_utf8_lossy(&b).into_owned())
+                            .unwrap(),
+                    },
+                    Err(e) => ProcResult {
+                        exit_code: 127,
+                        stdout: String::new(),
+                        stderr: e.to_string(),
+                    },
+                }
+            }
+            Err(e) => ProcResult {
+                exit_code: 127,
+                stdout: String::new(),
+                stderr: e.to_string(),
+            },
+        }
+    } else {
+        let output = cmd.output();
+        match output {
+            Ok(o) => ProcResult {
+                exit_code: exit_code(o.status),
+                stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
+            },
+            Err(e) => ProcResult {
+                exit_code: 127,
+                stdout: String::new(),
+                stderr: e.to_string(),
+            },
+        }
     }
 }
 
@@ -85,6 +129,26 @@ pub fn interactive_env<S: AsRef<str>>(
         Ok(s) => Ok(exit_code(s)),
         Err(e) => bail!("Could not run {file}: {e}"),
     }
+}
+
+fn tee<R: std::io::Read + Send + 'static>(
+    mut src: R,
+    mut sink: impl std::io::Write + Send + 'static,
+) -> std::thread::JoinHandle<std::io::Result<Vec<u8>>> {
+    std::thread::spawn(move || {
+        let mut captured = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            let n = src.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            sink.write_all(&buf[..n])?;
+            sink.flush()?;
+            captured.extend_from_slice(&buf[..n]);
+        }
+        Ok(captured)
+    })
 }
 
 /// A no-op Ctrl+C handler, installed once: the foreground child gets the signal too and decides what to do.
@@ -257,7 +321,7 @@ mod tests {
             interactive: false,
             width: 80,
         };
-        let r = capture(&ui, false, "definitely-not-a-program-xyz", &["a"]);
+        let r = capture(&ui, false, "definitely-not-a-program-xyz", &["a"], false);
         assert_eq!(r.exit_code, 127);
         assert!(!r.stderr.is_empty());
     }
@@ -269,7 +333,13 @@ mod tests {
             interactive: false,
             width: 80,
         };
-        let r = capture(&ui, false, "sh", &["-c", "echo out; echo err >&2; exit 3"]);
+        let r = capture(
+            &ui,
+            false,
+            "sh",
+            &["-c", "echo out; echo err >&2; exit 3"],
+            false,
+        );
         assert_eq!(
             (r.exit_code, r.stdout.as_str(), r.stderr.as_str()),
             (3, "out\n", "err\n")
@@ -283,7 +353,7 @@ mod tests {
             interactive: false,
             width: 80,
         };
-        let r = capture(&ui, false, "sh", &["-c", "kill -TERM $$"]);
+        let r = capture(&ui, false, "sh", &["-c", "kill -TERM $$"], false);
         assert_eq!(r.exit_code, 128 + 15);
     }
 

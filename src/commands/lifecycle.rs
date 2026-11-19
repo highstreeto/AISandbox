@@ -195,7 +195,7 @@ fn start_and_wait(ui: &Ui, rt: &dyn Runtime, tolerate_unhealthy: bool) -> Result
     let up: ProcResult = if ui.interactive && !rt.ctx().verbose {
         live_up(ui, rt)?
     } else {
-        rt.compose_up(ui)
+        rt.compose_up(ui, rt.ctx().verbose)
     };
     if up.exit_code == 0 {
         return Ok(());
@@ -209,7 +209,9 @@ fn start_and_wait(ui: &Ui, rt: &dyn Runtime, tolerate_unhealthy: bool) -> Result
         ui.warn("The desktop isn't reporting ready yet; opening anyway (reload the page if it's blank).");
         return Ok(());
     }
-    ui.show_output(&format!("{} compose up", rt.program()), &up);
+    if !rt.ctx().verbose {
+        ui.show_output(&format!("{} compose up", rt.program()), &up);
+    }
     if let Some(hint) = llm::gpu_hint(rt, &up) {
         ui.warn(&hint);
     }
@@ -223,7 +225,7 @@ fn live_up(ui: &Ui, rt: &dyn Runtime) -> Result<ProcResult> {
     std::thread::scope(|scope| {
         let (tx, rx) = mpsc::channel();
         scope.spawn(move || {
-            let _ = tx.send(rt.compose_up(ui));
+            let _ = tx.send(rt.compose_up(ui, false));
         });
         let mut drawn = 0usize;
         loop {

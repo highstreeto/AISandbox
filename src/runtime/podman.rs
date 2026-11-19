@@ -24,7 +24,7 @@ impl<'a> Podman<'a> {
 
     /// Whether `nvidia.com/gpu=all` is known: `nvidia-ctk cdi list`, or without `nvidia-ctk` a spec file.
     fn nvidia_cdi_available(&self, ui: &Ui) -> bool {
-        let r = process::capture(ui, self.verbose(), "nvidia-ctk", &["cdi", "list"]);
+        let r = process::capture(ui, self.verbose(), "nvidia-ctk", &["cdi", "list"], false);
         if r.exit_code == 0 {
             return r.stdout.contains(NVIDIA_CDI_DEVICE);
         }
@@ -113,7 +113,7 @@ impl Runtime for Podman<'_> {
 
     /// docker-compose prints its own JSON; podman-compose prints `podman ps` JSON.
     fn compose_ps(&self, ui: &Ui) -> Result<Vec<ServiceState>> {
-        let r = self.compose(ui, &["ps", "-a", "--format", "json"]);
+        let r = self.compose(ui, &["ps", "-a", "--format", "json"], false);
         if r.exit_code != 0 || r.stdout.trim().is_empty() {
             return Ok(Vec::new());
         }

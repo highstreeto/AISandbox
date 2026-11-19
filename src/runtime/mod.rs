@@ -124,8 +124,8 @@ pub trait Runtime: Sync {
     // --- the project's compose group ---
 
     /// `up -d --wait`: starts everything and waits until it's healthy.
-    fn compose_up(&self, ui: &Ui) -> ProcResult {
-        self.compose(ui, &["up", "-d", "--wait", "--wait-timeout", "300"])
+    fn compose_up(&self, ui: &Ui, echo: bool) -> ProcResult {
+        self.compose(ui, &["up", "-d", "--wait", "--wait-timeout", "300"], echo)
     }
 
     /// Builds the images with the build output on this terminal. `cache_bust` rebuilds the tool layers and pulls
@@ -140,23 +140,23 @@ pub trait Runtime: Sync {
     }
 
     fn compose_stop(&self, ui: &Ui) -> ProcResult {
-        self.compose(ui, &["stop"])
+        self.compose(ui, &["stop"], false)
     }
 
     fn compose_down(&self, ui: &Ui) -> ProcResult {
-        self.compose(ui, &["down"])
+        self.compose(ui, &["down"], false)
     }
 
     /// Restarts the given services, or all of them.
     fn compose_restart(&self, ui: &Ui, services: &[&str]) -> ProcResult {
         let mut args = vec!["restart"];
         args.extend_from_slice(services);
-        self.compose(ui, &args)
+        self.compose(ui, &args, false)
     }
 
     /// The containers of this project, by service name.
     fn compose_ps(&self, ui: &Ui) -> Result<Vec<ServiceState>> {
-        let r = self.compose(ui, &["ps", "-a", "--format", "json"]);
+        let r = self.compose(ui, &["ps", "-a", "--format", "json"], false);
         if r.exit_code != 0 || r.stdout.trim().is_empty() {
             return Ok(Vec::new());
         }
@@ -165,7 +165,7 @@ pub trait Runtime: Sync {
 
     /// `host:port` that a container port is published on, if it is.
     fn compose_port(&self, ui: &Ui, service: &str, port: u16) -> Option<String> {
-        let r = self.compose(ui, &["port", service, &port.to_string()]);
+        let r = self.compose(ui, &["port", service, &port.to_string()], false);
         if r.exit_code != 0 {
             return None;
         }
@@ -185,14 +185,14 @@ pub trait Runtime: Sync {
 
     /// One service's whole log, without the service prefix, captured.
     fn compose_logs_captured(&self, ui: &Ui, service: &str) -> ProcResult {
-        self.compose(ui, &["logs", "--no-log-prefix", service])
+        self.compose(ui, &["logs", "--no-log-prefix", service], false)
     }
 
     /// `exec -T <service> <command…>`, captured.
     fn compose_exec(&self, ui: &Ui, service: &str, command: &[&str]) -> ProcResult {
         let mut args = vec!["exec", "-T", service];
         args.extend_from_slice(command);
-        self.compose(ui, &args)
+        self.compose(ui, &args, false)
     }
 
     /// `exec <service> <command…>` on this terminal; `tty: false` adds `-T` (no terminal to attach).
@@ -230,11 +230,11 @@ pub trait Runtime: Sync {
 
     /// `<program> <args>`, captured.
     fn run(&self, ui: &Ui, args: &[&str]) -> ProcResult {
-        process::capture_env(ui, self.verbose(), self.program(), args, self.env())
+        process::capture_env(ui, self.verbose(), self.program(), args, self.env(), false)
     }
 
     /// A compose call with captured output (for spinners, tables and error panels).
-    fn compose(&self, ui: &Ui, args: &[&str]) -> ProcResult {
+    fn compose(&self, ui: &Ui, args: &[&str], echo: bool) -> ProcResult {
         let gen_path = self.project().gen_path();
         let mut full = compose_base(self.project(), &gen_path);
         full.extend_from_slice(self.captured_flags());
@@ -245,7 +245,7 @@ pub trait Runtime: Sync {
             .chain(self.captured_env())
             .copied()
             .collect();
-        process::capture_env(ui, self.verbose(), self.program(), &full, &envs)
+        process::capture_env(ui, self.verbose(), self.program(), &full, &envs, echo)
     }
 
     /// A compose call attached to this terminal (build output, shell, logs, claude).
