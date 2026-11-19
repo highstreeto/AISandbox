@@ -19,7 +19,7 @@ const PROJECT_FILES: [(&str, &str); 3] = [
 ];
 
 /// Creates `<folder>/.sandbox/` with `sandbox.toml`, `allowlist.txt` and `.gitignore` (files that exist are kept),
-/// the `.state` folder and the engine. Runs without Docker and ignores `SANDBOX_DIR`.
+/// the `.state` folder and the engine. Runs without runtime and ignores `SANDBOX_DIR`.
 pub fn init(ui: &Ui, folder: Option<&str>) -> Result<i32> {
     let cwd = paths::current_dir()?;
     let folder = folder.filter(|f| !f.trim().is_empty()).unwrap_or(".");

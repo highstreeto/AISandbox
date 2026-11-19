@@ -1,6 +1,6 @@
 //! The local LLM (`[llm]`): preparing and pulling models for `up`, `sandbox llm status|pull|rm|usage`.
 //!
-//! Models live in the machine-wide Docker volume [`MODELS_VOLUME`] (shared by all projects, never removed by `down`
+//! Models live in the machine-wide runtime volume [`MODELS_VOLUME`] (shared by all projects, never removed by `down`
 //! or `reset-home`). Ollama's downloads are started from here (`compose exec ollama ollama pull`); the desktop can't
 //! start them, because the gateway in front of Ollama refuses those endpoints.
 
