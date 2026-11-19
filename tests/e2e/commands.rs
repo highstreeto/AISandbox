@@ -590,6 +590,36 @@ fn verbose_prints_the_docker_commands() {
 }
 
 #[test]
+fn verbose_up_shows_the_compose_output() {
+    let f = Fixture::new();
+    for verbose in [false, true] {
+        let mut args = vec!["up", "--no-open"];
+        if verbose {
+            args.push("-v");
+        }
+        let r = f.run_with(
+            &args,
+            RunOpts::default().rules(vec![
+                rule("up -d --wait")
+                    .stdout("Container demo-desktop Healthy\n")
+                    .stderr("Container demo-proxy Started\n"),
+            ]),
+        );
+        assert_exit(&r, 0);
+        assert_eq!(
+            r.stdout.contains("Container demo-desktop Healthy"),
+            verbose,
+            "{r}"
+        );
+        assert_eq!(
+            r.stderr.contains("Container demo-proxy Started"),
+            verbose,
+            "{r}"
+        );
+    }
+}
+
+#[test]
 fn every_compose_call_uses_only_the_generated_file() {
     let f = Fixture::new();
     f.write_conf(&(f.read_conf() + "memory = \"4g\"\n"));

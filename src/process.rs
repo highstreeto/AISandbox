@@ -3,8 +3,10 @@
 use crate::config::BrowserSetting;
 use crate::ui::Ui;
 use anyhow::{Result, bail};
-use std::process::{Command, Stdio};
+use std::io::{self, Read, Write};
+use std::process::{Command, Output, Stdio};
 use std::sync::Once;
+use std::thread::JoinHandle;
 
 /// The exit code and output of a finished child process.
 #[derive(Debug, Clone)]
@@ -26,19 +28,9 @@ impl ProcResult {
     }
 }
 
-/// Runs a process with its output captured and no input. A program that can't be started gives exit code 127.
+/// Runs a process with its output captured, extra environment variables and no input. `echo` also copies its
+/// output to this terminal as it arrives. A program that can't be started gives exit code 127.
 pub fn capture<S: AsRef<str>>(
-    ui: &Ui,
-    verbose: bool,
-    file: &str,
-    args: &[S],
-    echo: bool,
-) -> ProcResult {
-    capture_env(ui, verbose, file, args, &[], echo)
-}
-
-/// [`capture`] with extra environment variables for the child.
-pub fn capture_env<S: AsRef<str>>(
     ui: &Ui,
     verbose: bool,
     file: &str,
@@ -53,66 +45,72 @@ pub fn capture_env<S: AsRef<str>>(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if echo {
-        let child = cmd.spawn();
-        match child {
-            Ok(mut o) => {
-                let out_t = tee(o.stdout.take().unwrap(), std::io::stdout());
-                let err_t = tee(o.stderr.take().unwrap(), std::io::stderr());
-
-                let status = o.wait();
-                match status {
-                    Ok(status) => ProcResult {
-                        exit_code: exit_code(status),
-                        stdout: out_t
-                            .join()
-                            .unwrap()
-                            .map(|b| String::from_utf8_lossy(&b).into_owned())
-                            .unwrap(),
-                        stderr: err_t
-                            .join()
-                            .unwrap()
-                            .map(|b| String::from_utf8_lossy(&b).into_owned())
-                            .unwrap(),
-                    },
-                    Err(e) => ProcResult {
-                        exit_code: 127,
-                        stdout: String::new(),
-                        stderr: e.to_string(),
-                    },
-                }
-            }
-            Err(e) => ProcResult {
-                exit_code: 127,
-                stdout: String::new(),
-                stderr: e.to_string(),
-            },
-        }
+    let output = if echo {
+        output_echoed(&mut cmd)
     } else {
-        let output = cmd.output();
-        match output {
-            Ok(o) => ProcResult {
-                exit_code: exit_code(o.status),
-                stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
-            },
-            Err(e) => ProcResult {
-                exit_code: 127,
-                stdout: String::new(),
-                stderr: e.to_string(),
-            },
-        }
+        cmd.output()
+    };
+    match output {
+        Ok(o) => ProcResult {
+            exit_code: exit_code(o.status),
+            stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
+        },
+        Err(e) => ProcResult {
+            exit_code: 127,
+            stdout: String::new(),
+            stderr: e.to_string(),
+        },
     }
 }
 
-/// Attached to the terminal. Ctrl+C goes to the child (`logs -f`, `shell`); this app stays alive and returns the
-/// child's exit code.
-pub fn interactive<S: AsRef<str>>(ui: &Ui, verbose: bool, file: &str, args: &[S]) -> Result<i32> {
-    interactive_env(ui, verbose, file, args, &[])
+/// [`Command::output`], with stdout and stderr also copied to this process's stdout and stderr as they arrive.
+fn output_echoed(cmd: &mut Command) -> io::Result<Output> {
+    let mut child = cmd.spawn()?;
+    let stdout = tee(child.stdout.take().expect("stdout is piped"), io::stdout());
+    let stderr = tee(child.stderr.take().expect("stderr is piped"), io::stderr());
+    let status = child.wait()?;
+    Ok(Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    })
 }
 
-/// [`interactive`] with extra environment variables for the child.
-pub fn interactive_env<S: AsRef<str>>(
+/// Reads `src` to the end on a new thread, copying it to `sink` and returning all of it. When `sink` fails (a
+/// closed stdout: `sandbox up -v | head`) the copying stops but the reading goes on, so the child never blocks on a
+/// full pipe and the output is still captured.
+fn tee(
+    mut src: impl Read + Send + 'static,
+    mut sink: impl Write + Send + 'static,
+) -> JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut captured = Vec::new();
+        let mut copying = true;
+        let mut buf = [0u8; 8192];
+        loop {
+            match src.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if copying {
+                        copying = sink
+                            .write_all(&buf[..n])
+                            .and_then(|()| sink.flush())
+                            .is_ok();
+                    }
+                    captured.extend_from_slice(&buf[..n]);
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+        captured
+    })
+}
+
+/// Attached to the terminal, with extra environment variables. Ctrl+C goes to the child (`logs -f`, `shell`); this
+/// app stays alive and returns the child's exit code.
+pub fn interactive<S: AsRef<str>>(
     ui: &Ui,
     verbose: bool,
     file: &str,
@@ -129,26 +127,6 @@ pub fn interactive_env<S: AsRef<str>>(
         Ok(s) => Ok(exit_code(s)),
         Err(e) => bail!("Could not run {file}: {e}"),
     }
-}
-
-fn tee<R: std::io::Read + Send + 'static>(
-    mut src: R,
-    mut sink: impl std::io::Write + Send + 'static,
-) -> std::thread::JoinHandle<std::io::Result<Vec<u8>>> {
-    std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        let mut buf = [0u8; 4096];
-        loop {
-            let n = src.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            sink.write_all(&buf[..n])?;
-            sink.flush()?;
-            captured.extend_from_slice(&buf[..n]);
-        }
-        Ok(captured)
-    })
 }
 
 /// A no-op Ctrl+C handler, installed once: the foreground child gets the signal too and decides what to do.
@@ -321,7 +299,14 @@ mod tests {
             interactive: false,
             width: 80,
         };
-        let r = capture(&ui, false, "definitely-not-a-program-xyz", &["a"], false);
+        let r = capture(
+            &ui,
+            false,
+            "definitely-not-a-program-xyz",
+            &["a"],
+            &[],
+            false,
+        );
         assert_eq!(r.exit_code, 127);
         assert!(!r.stderr.is_empty());
     }
@@ -338,6 +323,7 @@ mod tests {
             false,
             "sh",
             &["-c", "echo out; echo err >&2; exit 3"],
+            &[],
             false,
         );
         assert_eq!(
@@ -353,8 +339,91 @@ mod tests {
             interactive: false,
             width: 80,
         };
-        let r = capture(&ui, false, "sh", &["-c", "kill -TERM $$"], false);
+        let r = capture(&ui, false, "sh", &["-c", "kill -TERM $$"], &[], false);
         assert_eq!(r.exit_code, 128 + 15);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn echoed_output_is_captured_too() {
+        let ui = Ui {
+            interactive: false,
+            width: 80,
+        };
+        let r = capture(
+            &ui,
+            false,
+            "sh",
+            &["-c", "echo \"$X\"; echo err >&2; exit 3"],
+            &[("X", "out")],
+            true,
+        );
+        assert_eq!(
+            (r.exit_code, r.stdout.as_str(), r.stderr.as_str()),
+            (3, "out\n", "err\n")
+        );
+    }
+
+    #[test]
+    fn a_missing_program_is_exit_127_when_echoed() {
+        let ui = Ui {
+            interactive: false,
+            width: 80,
+        };
+        let r = capture(
+            &ui,
+            false,
+            "definitely-not-a-program-xyz",
+            &["a"],
+            &[],
+            true,
+        );
+        assert_eq!(r.exit_code, 127);
+        assert!(!r.stderr.is_empty());
+    }
+
+    /// A sink that keeps what it gets, shared with the test.
+    #[derive(Clone, Default)]
+    struct Shared(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl Write for Shared {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A sink like a closed stdout.
+    struct Closed;
+
+    impl Write for Closed {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn tee_copies_and_captures_everything() {
+        let data: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8).collect();
+        let sink = Shared::default();
+        let captured = tee(io::Cursor::new(data.clone()), sink.clone())
+            .join()
+            .unwrap();
+        assert_eq!(captured, data);
+        assert_eq!(*sink.0.lock().unwrap(), data);
+    }
+
+    #[test]
+    fn tee_keeps_reading_when_the_sink_is_closed() {
+        let data: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8).collect();
+        let captured = tee(io::Cursor::new(data.clone()), Closed).join().unwrap();
+        assert_eq!(captured, data);
     }
 
     fn texts(items: &[&str]) -> Vec<String> {

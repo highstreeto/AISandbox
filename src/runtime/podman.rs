@@ -24,7 +24,14 @@ impl<'a> Podman<'a> {
 
     /// Whether `nvidia.com/gpu=all` is known: `nvidia-ctk cdi list`, or without `nvidia-ctk` a spec file.
     fn nvidia_cdi_available(&self, ui: &Ui) -> bool {
-        let r = process::capture(ui, self.verbose(), "nvidia-ctk", &["cdi", "list"], false);
+        let r = process::capture(
+            ui,
+            self.verbose(),
+            "nvidia-ctk",
+            &["cdi", "list"],
+            &[],
+            false,
+        );
         if r.exit_code == 0 {
             return r.stdout.contains(NVIDIA_CDI_DEVICE);
         }

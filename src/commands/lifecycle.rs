@@ -195,7 +195,7 @@ fn start_and_wait(ui: &Ui, rt: &dyn Runtime, tolerate_unhealthy: bool) -> Result
     let up: ProcResult = if ui.interactive && !rt.ctx().verbose {
         live_up(ui, rt)?
     } else {
-        rt.compose_up(ui, rt.ctx().verbose)
+        rt.compose_up(ui)
     };
     if up.exit_code == 0 {
         return Ok(());
@@ -209,6 +209,7 @@ fn start_and_wait(ui: &Ui, rt: &dyn Runtime, tolerate_unhealthy: bool) -> Result
         ui.warn("The desktop isn't reporting ready yet; opening anyway (reload the page if it's blank).");
         return Ok(());
     }
+    // with -v the output was shown as it arrived
     if !rt.ctx().verbose {
         ui.show_output(&format!("{} compose up", rt.program()), &up);
     }
@@ -225,7 +226,7 @@ fn live_up(ui: &Ui, rt: &dyn Runtime) -> Result<ProcResult> {
     std::thread::scope(|scope| {
         let (tx, rx) = mpsc::channel();
         scope.spawn(move || {
-            let _ = tx.send(rt.compose_up(ui, false));
+            let _ = tx.send(rt.compose_up(ui));
         });
         let mut drawn = 0usize;
         loop {

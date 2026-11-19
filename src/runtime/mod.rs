@@ -124,8 +124,14 @@ pub trait Runtime: Sync {
     // --- the project's compose group ---
 
     /// `up -d --wait`: starts everything and waits until it's healthy.
-    fn compose_up(&self, ui: &Ui, echo: bool) -> ProcResult {
-        self.compose(ui, &["up", "-d", "--wait", "--wait-timeout", "300"], echo)
+    /// With `-v` its output is also shown as it arrives.
+    fn compose_up(&self, ui: &Ui) -> ProcResult {
+        let verbose = self.verbose();
+        self.compose(
+            ui,
+            &["up", "-d", "--wait", "--wait-timeout", "300"],
+            verbose,
+        )
     }
 
     /// Builds the images with the build output on this terminal. `cache_bust` rebuilds the tool layers and pulls
@@ -230,10 +236,11 @@ pub trait Runtime: Sync {
 
     /// `<program> <args>`, captured.
     fn run(&self, ui: &Ui, args: &[&str]) -> ProcResult {
-        process::capture_env(ui, self.verbose(), self.program(), args, self.env(), false)
+        process::capture(ui, self.verbose(), self.program(), args, self.env(), false)
     }
 
-    /// A compose call with captured output (for spinners, tables and error panels).
+    /// A compose call with captured output (for spinners, tables and error panels); `echo` also shows it as it
+    /// arrives.
     fn compose(&self, ui: &Ui, args: &[&str], echo: bool) -> ProcResult {
         let gen_path = self.project().gen_path();
         let mut full = compose_base(self.project(), &gen_path);
@@ -245,7 +252,7 @@ pub trait Runtime: Sync {
             .chain(self.captured_env())
             .copied()
             .collect();
-        process::capture_env(ui, self.verbose(), self.program(), &full, &envs, echo)
+        process::capture(ui, self.verbose(), self.program(), &full, &envs, echo)
     }
 
     /// A compose call attached to this terminal (build output, shell, logs, claude).
@@ -253,7 +260,7 @@ pub trait Runtime: Sync {
         let gen_path = self.project().gen_path();
         let mut full = compose_base(self.project(), &gen_path);
         full.extend_from_slice(args);
-        process::interactive_env(ui, self.verbose(), self.program(), &full, self.env())
+        process::interactive(ui, self.verbose(), self.program(), &full, self.env())
     }
 }
 
