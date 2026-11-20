@@ -1,5 +1,9 @@
 # AI Sandbox — a Kubuntu desktop for this project
 
+![Sandbox inside a Sandbox](doc/sandbox-in-sandbox.png)
+
+(Can even start itself!)
+
 A KDE Plasma desktop (LinuxServer.io WebTop) in your browser, set up for one project. It can only reach the hosts you
 allow and only see the folders you share. The settings live in the project's `.sandbox/` folder and are committed, so
 anyone who clones the project gets the same environment.
