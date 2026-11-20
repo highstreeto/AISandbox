@@ -72,7 +72,10 @@ mod tests {
         let plain = Style::new();
         let lines = vec!["abc".to_string(), "abcdef".to_string()];
         let text = render("T", &plain, &plain, &lines, 80, false);
-        assert_eq!(text, "╭─ T ────╮\r\n│ abc    │\r\n│ abcdef │\r\n╰────────╯\r\n");
+        assert_eq!(
+            text,
+            "╭─ T ────╮\r\n│ abc    │\r\n│ abcdef │\r\n╰────────╯\r\n"
+        );
     }
 
     #[test]
