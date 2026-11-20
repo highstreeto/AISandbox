@@ -65,7 +65,7 @@ New model field `host.nesting: bool` (= tools has podman enabled, also in nested
 - env `SANDBOX_INSIDE: "1"`, added to `RESERVED_ENV` in `src/config/mod.rs`.
 
 Validation in `src/config/mod.rs` / at `up`: `podman = true` with runtime Docker → "Nested containers need rootless
-Podman. Set runtime = \"podman\" under [host] in sandbox.local.toml, or podman = false under [tools]."; with rootful
+Podman. Set runtime = \"podman\" under `[host]` in sandbox.local.toml, or podman = false under `[tools]`."; with rootful
 Podman (from `RuntimeInfo.rootless`) → similar message. The check belongs where `RuntimeInfo` is known
 (`engine::compose::generate` or `need_runtime` in `src/runtime/mod.rs`).
 

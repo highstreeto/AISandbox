@@ -5,7 +5,8 @@ source "$(dirname "$0")/_lib.sh"
 
 # docker-compose-v2 is what "podman compose" hands the compose file to (through the API socket below);
 # podman-compose lacks flags the sandbox app uses.
-apt_install podman docker-compose-v2 crun passt netavark aardvark-dns uidmap fuse-overlayfs catatonit libcap2-bin
+# nftables: netavark sets up the networks of compose projects with nft (only a Recommends, which apt_install skips).
+apt_install podman docker-compose-v2 crun passt netavark aardvark-dns uidmap fuse-overlayfs catatonit libcap2-bin nftables
 
 # newuidmap/newgidmap with file capabilities instead of setuid root: the setuid build stays euid 0, and writing the
 # uid_map of a namespace owned by the user then needs CAP_SYS_ADMIN, which the desktop doesn't have.
