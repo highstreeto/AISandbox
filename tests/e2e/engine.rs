@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::time::{Duration, SystemTime};
 
-const EXPECTED_FILES: [&str; 15] = [
+const EXPECTED_FILES: [&str; 16] = [
     "desktop/Dockerfile",
     "desktop/bin/sandbox-install",
     "desktop/bin/sandbox-llm",
@@ -24,6 +24,7 @@ const EXPECTED_FILES: [&str; 15] = [
     "proxy/tinyproxy.conf",
     "llm/Dockerfile",
     "llm/nginx.conf",
+    "llm/resolver.sh",
     "llm/usage.js",
 ];
 
@@ -467,6 +468,14 @@ fn the_llm_gateway_is_part_of_the_engine_even_when_the_llm_is_off() {
     let docker = fs::read_to_string(state_path(&f, "llm/Dockerfile")).unwrap();
     assert!(docker.contains("FROM nginx/nginx-unprivileged:"));
     assert!(docker.contains("COPY --chmod=0644 usage.js /etc/nginx/usage.js"));
+    // Docker and Podman answer DNS on different addresses: the resolver is picked at start, not hard-coded
+    assert!(!nginx.contains("127.0.0.11"));
+    assert!(nginx.contains("include /tmp/nginx/resolver.conf;"));
+    assert!(docker.contains("COPY --chmod=0755 resolver.sh /docker-entrypoint.d/"));
+    let resolver = state_path(&f, "llm/resolver.sh");
+    let script = fs::read_to_string(&resolver).unwrap();
+    assert!(script.starts_with(&format!("#!/bin/sh\n{}\n", header(&f))));
+    assert!(script.contains("/tmp/nginx/resolver.conf"));
 }
 
 #[test]

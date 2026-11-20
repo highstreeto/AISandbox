@@ -10,6 +10,8 @@ USER 101
 
 COPY --chmod=0644 nginx.conf /etc/nginx/nginx.conf
 COPY --chmod=0644 usage.js /etc/nginx/usage.js
+# The image's entrypoint runs it before nginx: it writes /tmp/nginx/resolver.conf (Docker and Podman DNS differ).
+COPY --chmod=0755 resolver.sh /docker-entrypoint.d/25-sandbox-resolver.sh
 
 EXPOSE 11434
 CMD ["nginx", "-g", "daemon off;"]
