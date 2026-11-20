@@ -18,6 +18,9 @@ const CLAUDE_SCRIPT: &str = "command -v claude >/dev/null || { echo \"Claude Cod
 
 pub fn up(ui: &Ui, rt: &dyn Runtime, open_browser: bool, pull_models: bool) -> Result<i32> {
     rt.check_before_up(ui)?;
+    if rt.project().settings.llm_off_nested {
+        ui.info("The local LLM is off in a nested sandbox ([llm] is ignored here).");
+    }
     build(ui, rt, false)?;
     ensure_llm_volume(ui, rt)?;
     start_and_wait(ui, rt, true)?;

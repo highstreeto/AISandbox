@@ -7,16 +7,24 @@
 use crate::engine::{self, embedded};
 use crate::paths;
 use crate::process::user_ids;
-use crate::project::{Project, write_state_ignore};
+use crate::project::{Project, inside_sandbox, write_state_ignore};
 use crate::runtime::{RuntimeInfo, RuntimeKind};
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
+use camino::Utf8Path;
 use minijinja::value::{Serde, Value, ValueKind};
 use minijinja::{AutoEscape, Environment, UndefinedBehavior, syntax::SyntaxConfig};
 use serde::Serialize;
 use std::fmt::Write;
 use std::fs;
+use std::net::{SocketAddr, ToSocketAddrs};
 
 const TEMPLATE_NAME: &str = "compose.yml.j2";
+/// What the desktop needs for nested containers (`[tools] podman`), added to `[desktop] devices` / `security_opt`.
+const NESTING_DEVICES: &[&str] = &["/dev/fuse", "/dev/net/tun"];
+/// `unmask=ALL` lets nested containers mount their own `/proc`; `label=disable`: no nested SELinux labels.
+const NESTING_SECURITY_OPT: &[&str] = &["label=disable", "unmask=ALL"];
+/// The outer proxy's port (the template's own proxy: `proxy:3128`).
+const UPSTREAM_PROXY_PORT: u16 = 3128;
 
 /// The template's variables.
 #[derive(Debug, Serialize)]
@@ -45,6 +53,12 @@ struct Host {
     runtime: RuntimeKind,
     /// Rootless Podman: the desktop keeps the host user's id (`userns_mode: keep-id`).
     rootless: bool,
+    /// `[tools] podman`: the desktop gets the devices, options and storage volume nested containers need.
+    nesting: bool,
+    /// Started inside a sandbox desktop: the proxy forwards to the outer proxy, no `hostname`, no host-gateway.
+    nested: bool,
+    /// Nested: the outer proxy's address (`sandbox-upstream` in the proxy container); empty otherwise.
+    upstream_proxy: String,
     id: String,
     workdir: String,
     uid: String,
@@ -102,11 +116,18 @@ pub struct MountModel {
 /// them.
 pub fn generate(project: &Project, runtime: &RuntimeInfo) -> Result<engine::SyncReport> {
     let state_dir = project.state_dir();
+    check_writable(&state_dir)?;
+    check_nesting(project, runtime)?;
+    let upstream = if inside_sandbox() {
+        Some(upstream_proxy()?)
+    } else {
+        None
+    };
     write_state_ignore(&state_dir)?;
     let report = engine::sync(&state_dir)?;
     let text = render(
         &embedded::read_text(TEMPLATE_NAME)?,
-        &model(project, runtime),
+        &model(project, runtime, upstream),
     )?;
     paths::write_text(
         &project.gen_path(),
@@ -115,6 +136,101 @@ pub fn generate(project: &Project, runtime: &RuntimeInfo) -> Result<engine::Sync
     // left over from the multi-file setup
     let _ = fs::remove_file(state_dir.join("compose.generated.yml"));
     Ok(report)
+}
+
+/// `.state/` must be writable. Inside a sandbox `.sandbox/` is mounted read-only (with `workspace = "ro"` the whole
+/// project), so a nested sandbox runs from a writable copy.
+fn check_writable(state_dir: &Utf8Path) -> Result<()> {
+    let probe = state_dir.join(".write-test");
+    let writable = fs::create_dir_all(state_dir)
+        .and_then(|()| fs::write(&probe, b""))
+        .is_ok();
+    let _ = fs::remove_file(&probe);
+    if writable {
+        Ok(())
+    } else if inside_sandbox() {
+        bail!(
+            "{state_dir} is read-only here. Copy the project to a writable folder (e.g. under /config) and run sandbox there."
+        )
+    } else {
+        bail!(
+            "{state_dir} is not writable. Make it writable, or run sandbox from a writable copy of the project."
+        )
+    }
+}
+
+/// `[tools] podman` (nested containers) needs rootless Podman: everything it relaxes stays in the user namespace.
+fn check_nesting(project: &Project, runtime: &RuntimeInfo) -> Result<()> {
+    if !project.settings.podman_tool() {
+        return Ok(());
+    }
+    match (runtime.kind, runtime.rootless) {
+        (RuntimeKind::Podman, true) => Ok(()),
+        (RuntimeKind::Podman, false) => bail!(
+            "podman = true under [tools] needs rootless Podman, but this Podman runs as root. Use rootless Podman \
+             (Windows/macOS: podman machine set --rootful=false), or set podman = false under [tools] in sandbox.toml."
+        ),
+        _ => bail!(
+            "podman = true under [tools] needs rootless Podman, not Docker. Set runtime = \"podman\" under [host] in \
+             sandbox.local.toml, or podman = false under [tools] in sandbox.toml."
+        ),
+    }
+}
+
+/// Nested: the outer proxy (host of `$HTTPS_PROXY`, `proxy` in the outer group) as an IP address, because the name
+/// `proxy` means the inner proxy inside the nested group.
+fn upstream_proxy() -> Result<String> {
+    let Some((var, url)) = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"]
+        .iter()
+        .find_map(|v| {
+            std::env::var(v)
+                .ok()
+                .filter(|u| !u.trim().is_empty())
+                .map(|u| (*v, u))
+        })
+    else {
+        bail!(
+            "HTTPS_PROXY is not set, so the outer sandbox's proxy is unknown (a nested sandbox needs it)."
+        );
+    };
+    let Some(host) = proxy_host(&url) else {
+        bail!("{var} is \"{url}\", which has no host name.");
+    };
+    let addrs: Vec<SocketAddr> = (host.as_str(), UPSTREAM_PROXY_PORT)
+        .to_socket_addrs()
+        .map_err(|e| anyhow!("The outer proxy {host} ({var}) can't be resolved: {e}"))?
+        .collect();
+    let addr = addrs
+        .iter()
+        .find(|a| a.is_ipv4())
+        .or_else(|| addrs.first())
+        .ok_or_else(|| anyhow!("The outer proxy {host} ({var}) can't be resolved."))?;
+    Ok(addr.ip().to_string())
+}
+
+/// The host of a proxy URL: `http://user:pw@proxy:3128/` → `proxy`, `http://[::1]:3128` → `::1`.
+fn proxy_host(url: &str) -> Option<String> {
+    let rest = url.trim();
+    let rest = rest.split_once("://").map_or(rest, |(_, r)| r);
+    let rest = rest.split('/').next().unwrap_or_default();
+    let rest = rest.rsplit_once('@').map_or(rest, |(_, r)| r);
+    let host = if let Some(v6) = rest.strip_prefix('[') {
+        v6.split(']').next().unwrap_or_default()
+    } else {
+        rest.split(':').next().unwrap_or_default()
+    };
+    (!host.is_empty()).then(|| host.to_string())
+}
+
+/// `base` plus the entries of `extra` it doesn't have yet.
+fn with_extra(base: &[String], extra: &[&str]) -> Vec<String> {
+    let mut all = base.to_vec();
+    for e in extra {
+        if !all.iter().any(|a| a == e) {
+            all.push((*e).to_string());
+        }
+    }
+    all
 }
 
 fn render(template: &str, model: &Model) -> Result<String> {
@@ -175,13 +291,25 @@ pub fn quote(s: &str) -> String {
     out
 }
 
-fn model(project: &Project, runtime: &RuntimeInfo) -> Model {
+fn model(project: &Project, runtime: &RuntimeInfo, upstream: Option<String>) -> Model {
     let s = &project.settings;
     let (uid, gid) = user_ids();
+    let nesting = s.podman_tool();
+    let (devices, security_opt) = if nesting {
+        (
+            with_extra(&s.devices, NESTING_DEVICES),
+            with_extra(&s.security_opt, NESTING_SECURITY_OPT),
+        )
+    } else {
+        (s.devices.clone(), s.security_opt.clone())
+    };
     Model {
         host: Host {
             runtime: runtime.kind,
             rootless: runtime.rootless,
+            nesting,
+            nested: upstream.is_some(),
+            upstream_proxy: upstream.unwrap_or_default(),
             id: project.id.clone(),
             workdir: project.work_dir.clone(),
             uid: uid.to_string(),
@@ -206,8 +334,8 @@ fn model(project: &Project, runtime: &RuntimeInfo) -> Model {
             timezone: s.time_zone.clone().or_else(host_time_zone),
             memory: s.memory.clone(),
             cpus: s.cpus.clone(),
-            devices: s.devices.clone(),
-            security_opt: s.security_opt.clone(),
+            devices,
+            security_opt,
         },
         env: s
             .env
@@ -279,6 +407,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_proxy_host_is_taken_from_the_url() {
+        assert_eq!(proxy_host("http://proxy:3128").as_deref(), Some("proxy"));
+        assert_eq!(proxy_host("http://proxy:3128/").as_deref(), Some("proxy"));
+        assert_eq!(proxy_host("proxy:3128").as_deref(), Some("proxy"));
+        assert_eq!(
+            proxy_host(" http://u:p@10.89.0.5:3128 ").as_deref(),
+            Some("10.89.0.5")
+        );
+        assert_eq!(
+            proxy_host("http://[fd00::5]:3128").as_deref(),
+            Some("fd00::5")
+        );
+        assert_eq!(proxy_host("http://:3128"), None);
+        assert_eq!(proxy_host(""), None);
+    }
+
+    #[test]
+    fn extra_entries_are_added_once() {
+        let base = vec!["/dev/fuse".to_string(), "/dev/dri".to_string()];
+        assert_eq!(
+            with_extra(&base, NESTING_DEVICES),
+            ["/dev/fuse", "/dev/dri", "/dev/net/tun"]
+        );
+    }
+
+    #[test]
     fn quote_escapes_like_the_dotnet_original() {
         assert_eq!(quote("plain"), "\"plain\"");
         assert_eq!(quote("a\"b\\c"), "\"a\\\"b\\\\c\"");
@@ -296,6 +450,9 @@ mod tests {
             host: Host {
                 runtime: RuntimeKind::Docker,
                 rootless: false,
+                nesting: false,
+                nested: false,
+                upstream_proxy: String::new(),
                 id: "x\"y".into(),
                 workdir: String::new(),
                 uid: String::new(),

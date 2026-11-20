@@ -1,0 +1,27 @@
+#!/usr/bin/with-contenv bash
+# Runs as root at every container start, after 50-sandbox. Sets up rootless Podman for abc (tools: podman = true).
+command -v podman >/dev/null || exit 0
+uid=$(id -u abc); gid=$(id -g abc)
+
+# 1. subuids/subgids: every id of this container's user namespace except root and abc's own.
+for kind in uid gid; do
+  id_=$([ $kind = uid ] && echo "$uid" || echo "$gid")
+  n=$(awk '{n += $3} END {print n}' /proc/self/${kind}_map)
+  {
+    [ "$id_" -gt 1 ] && echo "abc:1:$((id_ - 1))"
+    [ "$n" -gt $((id_ + 1)) ] && echo "abc:$((id_ + 1)):$((n - id_ - 1))"
+  } > /etc/sub$kind
+done
+if [ "$n" -lt 65536 ]; then
+  echo "[sandbox] only $n user ids in this container: nested containers lack ids such as nobody (65534)."
+  echo "[sandbox] Give your user a larger range in /etc/subuid and /etc/subgid on the host (e.g. 1000000)."
+fi
+
+# 2. Image storage (its own volume, so overlay works) belongs to abc.
+chown abc:abc /config/.local/share/containers 2>/dev/null
+
+# 3. Podman's runtime state from before a restart is stale (XDG_RUNTIME_DIR is in the home volume, not a tmpfs).
+rt=${XDG_RUNTIME_DIR:-/config/.XDG}
+install -d -m 0700 -o abc -g abc "$rt"
+rm -rf "$rt/containers" "$rt/libpod" "$rt/podman" "$rt/netns" "$rt/crun" "$rt/systemd"
+exit 0

@@ -382,6 +382,7 @@ fn shipped_sandbox_toml_renders_all_tools() {
             "INSTALL_RUST",
             "INSTALL_VSCODE",
             "INSTALL_JETBRAINS",
+            "INSTALL_PODMAN",
             "INSTALL_APT"
         ]
     );

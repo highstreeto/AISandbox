@@ -91,10 +91,21 @@
 # account.jetbrains.com
 # *.jetbrains.com
 
+# --- Podman in the sandbox ([tools] podman: image pulls, nested sandboxes) ---
+# | A nested sandbox builds its images through this proxy: also allow the Ubuntu packages group
+# | and the hosts of every tool its sandbox.toml installs.
+# registry-1.docker.io
+# auth.docker.io
+# production.cloudfront.docker.com
+# ghcr.io
+# lscr.io
+# pkg-containers.githubusercontent.com
+# dl-cdn.alpinelinux.org
+
 # --- Local LLM on the host (Ollama, LM Studio, llama.cpp, ...) --------------
-# Built in: [llm] in sandbox.toml runs Ollama in its own container, nothing to
-# install on the host and nothing to allow here. Only for a server you already
-# run on the host:
+# | Built in: [llm] in sandbox.toml runs Ollama in its own container, nothing to
+# | install on the host and nothing to allow here. Only for a server you already
+# | run on the host:
 # Make the server listen on 0.0.0.0 on the host, then use e.g.
 #   http://host.docker.internal:11434   from inside the sandbox.
 # host.docker.internal

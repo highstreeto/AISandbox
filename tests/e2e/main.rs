@@ -5,5 +5,6 @@ mod compose_file;
 mod engine;
 mod errors;
 mod init;
+mod nested;
 mod runtime_select;
 mod support;

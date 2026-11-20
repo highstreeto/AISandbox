@@ -94,3 +94,7 @@ static.crates.io
 # Make the server listen on 0.0.0.0 on the host, then use e.g.
 #   http://host.docker.internal:11434   from inside the sandbox.
 # host.docker.internal
+registry-1.docker.io
+auth.docker.io
+production.cloudfront.docker.com
+dl-cdn.alpinelinux.org
