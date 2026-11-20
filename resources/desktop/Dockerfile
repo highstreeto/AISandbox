@@ -59,6 +59,8 @@ ARG INSTALL_VSCODE=false
 RUN sandbox-install vscode "${INSTALL_VSCODE}"
 ARG INSTALL_JETBRAINS=false
 RUN sandbox-install jetbrains "${INSTALL_JETBRAINS}"
+ARG INSTALL_PODMAN=false
+RUN sandbox-install podman "${INSTALL_PODMAN}"
 
 # Sandbox integration: proxy settings for apt/sudo/KDE, startup script.
 COPY root/ /

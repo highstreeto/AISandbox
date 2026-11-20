@@ -12,6 +12,13 @@ use std::sync::LazyLock;
 
 /// Set by the launchers to the `.sandbox` folder next to them.
 pub const DIR_VARIABLE: &str = "SANDBOX_DIR";
+/// Set in the desktop of a sandbox with `[tools] podman`: a sandbox started there is nested.
+pub const INSIDE_VARIABLE: &str = "SANDBOX_INSIDE";
+
+/// Whether this runs inside a sandbox desktop (`SANDBOX_INSIDE=1`), so a sandbox started here is nested.
+pub fn inside_sandbox() -> bool {
+    std::env::var(INSIDE_VARIABLE).is_ok_and(|v| v.trim() == "1")
+}
 
 const OLD_CONFIG_FILE_NAME: &str = "sandbox.yml";
 const OLD_LOCAL_CONFIG_FILE_NAME: &str = "sandbox.local.yml";
@@ -48,12 +55,15 @@ impl Project {
 
         check_old_config(ui, &dir)?;
         check_old_layout(ui, &dir);
-        let settings = config::read(
+        let mut settings = config::read(
             &dir.join(config::FILE_NAME),
             &project_dir,
             &embedded::read_text("desktop/Dockerfile")?,
         )?;
         check_local_ignore(ui, &dir);
+        if inside_sandbox() && settings.llm.take().is_some() {
+            settings.llm_off_nested = true;
+        }
         let base_name = sanitize(project_dir.file_name().unwrap_or(""));
         let name = match settings.project_name.as_deref() {
             Some(n) if !n.trim().is_empty() => sanitize(n),

@@ -34,6 +34,9 @@ pub fn run(ui: &Ui, rt: &dyn Runtime, command: LlmCommand) -> Result<i32> {
 fn need_llm(rt: &dyn Runtime) -> Result<&LlmSettings> {
     match &rt.project().settings.llm {
         Some(llm) => Ok(llm),
+        None if rt.project().settings.llm_off_nested => {
+            bail!("The local LLM is off in a nested sandbox (one started inside a sandbox).")
+        }
         None if rt.project().settings.llm_off_locally => bail!(
             "The local LLM is switched off on this machine (enabled = false under [llm] in {}).",
             config::LOCAL_FILE_NAME

@@ -18,6 +18,12 @@ by the app and written as-is. Relative paths are relative to the .sandbox folder
 host.runtime is "docker" or "podman". Podman differences: bind mounts get the SELinux label "z", rootless Podman
 keeps the host user's id in the desktop (userns_mode keep-id, so files in the project stay the user's), and NVIDIA
 GPUs are a CDI device.
+
+host.nesting ([tools] podman, rootless Podman only): the desktop gets /dev/fuse, /dev/net/tun, label=disable and
+unmask=ALL (merged into desktop.devices / desktop.security_opt by the app), a higher pids limit, its own image
+storage volume and SANDBOX_INSIDE=1. host.nested (started inside such a desktop): the proxy forwards to the outer
+proxy (sandbox-upstream = host.upstream_proxy), the desktop has no hostname (nested containers share the outer
+desktop's UTS namespace), and the images are built with the lowercase proxy variables as build args (x-build-proxy).
 -#}
 # Rendered from compose.yml.j2 with sandbox.toml and this machine's settings.
 # Relative paths are relative to the .sandbox folder.
@@ -40,14 +46,34 @@ x-hardened: &hardened
   volumes:
     - {{ ".:/sandbox:ro,z" if host.runtime == "podman" else ".:/sandbox:ro" }}   # allowlist.txt (live: "sandbox reload")
 
+{% if host.nested %}
+# Nested: builds run in the outer desktop, whose only way out is the outer proxy. docker-compose passes it to builds
+# from ~/.docker/config.json, but only as HTTP_PROXY/HTTPS_PROXY; apt reads only the lowercase names.
+x-build-proxy: &build-proxy
+  http_proxy: {{ host.build_proxy | q }}
+  https_proxy: {{ host.build_proxy | q }}
+  no_proxy: "localhost,127.0.0.1,::1"
+
+{% endif %}
 services:
   proxy:
     <<: *hardened
+    {% if host.nested %}
+    build: {context: ./.state/proxy, args: *build-proxy}
+    {% else %}
     build: ./.state/proxy
+    {% endif %}
+    {% if host.nested %}
+    command: ["tinyproxy", "-d", "-c", "/etc/tinyproxy/tinyproxy-nested.conf"]   # Upstream: the outer proxy
+    networks: [sandbox, egress]
+    extra_hosts:
+      - {{ ("sandbox-upstream:" ~ host.upstream_proxy) | q }}
+    {% else %}
     command: ["tinyproxy", "-d", "-c", "/etc/tinyproxy/tinyproxy.conf"]
     networks: [sandbox, egress]
     extra_hosts:
       - "host.docker.internal:host-gateway"   # only reachable if allowlisted
+    {% endif %}
     healthcheck:
       test: ["CMD", "nc", "-z", "127.0.0.1", "3128"]
       interval: 10s
@@ -56,7 +82,11 @@ services:
 
   gateway:
     <<: *hardened
+    {% if host.nested %}
+    build: {context: ./.state/proxy, args: *build-proxy}
+    {% else %}
     build: ./.state/proxy
+    {% endif %}
     command: ["socat", "TCP-LISTEN:3001,fork,reuseaddr", "TCP:desktop:3001"]
     networks: [sandbox, ui]
     ports:
@@ -66,11 +96,16 @@ services:
   desktop:
     build:
       context: ./.state/desktop
-      args:{{ " {}" if not tools else "" }}
+      args:{{ " {}" if not tools and not host.nested else "" }}
+      {% if host.nested %}
+        <<: *build-proxy
+      {% endif %}
       {% for t in tools %}
         {{ t.arg }}: {{ t.value | q }}
       {% endfor %}
+    {% if not host.nested %}
     hostname: sandbox
+    {% endif %}
     {% if host.runtime == "podman" and host.rootless %}
     userns_mode: "keep-id"   # the host user's id inside; files written to the project stay theirs
     user: "0:0"              # the image's init starts as root and switches to PUID/PGID
@@ -97,6 +132,9 @@ services:
       TZ: {{ desktop.timezone | q }}
       {% endif %}
       SANDBOX_WORKDIR: {{ host.workdir | q }}
+      {% if host.nesting %}
+      SANDBOX_INSIDE: "1"       # a sandbox started in this desktop is nested
+      {% endif %}
       {% if llm %}
       SANDBOX_LLM_URL: "http://llm:11434"
       SANDBOX_LLM_MODEL: {{ llm.model | q }}
@@ -108,6 +146,9 @@ services:
       {% endfor %}
     volumes:
       - home:/config            # persistent home: logins, IDE settings, Toolbox IDEs
+      {% if host.nesting %}
+      - containers:/config/.local/share/containers   # Podman's images (a volume: overlay can't nest on overlay)
+      {% endif %}
       {% for m in mounts %}
       - {type: bind, source: {{ m.source | q }}, target: {{ m.target | q }}, read_only: {{ "true" if m.read_only else "false" }}{{ ", bind: {selinux: z}" if host.runtime == "podman" else "" }}}
       {% endfor %}
@@ -128,7 +169,7 @@ services:
     {% if desktop.cpus %}
     cpus: {{ desktop.cpus }}
     {% endif %}
-    pids_limit: 4096
+    pids_limit: {{ 32768 if host.nesting else 4096 }}
     depends_on: [proxy]
     restart: unless-stopped
     healthcheck:
@@ -199,6 +240,9 @@ services:
 {% endif %}
 volumes:
   home:
+{% if host.nesting %}
+  containers:
+{% endif %}
 {% if llm %}
   llm-usage:
   models:

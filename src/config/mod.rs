@@ -21,6 +21,7 @@ const RESERVED_ENV: &[(&str, Option<&str>)] = &[
     ("HTTPS_PROXY", None),
     ("NO_PROXY", None),
     ("SANDBOX_WORKDIR", None),
+    ("SANDBOX_INSIDE", Some("tools.podman")),
     ("PUID", None),
     ("PGID", None),
     ("TZ", Some("desktop.timezone")),
@@ -70,6 +71,17 @@ pub struct Settings {
     pub llm: Option<LlmSettings>,
     /// `[llm]` is set up in `sandbox.toml` but `sandbox.local.toml` turns it off on this machine.
     pub llm_off_locally: bool,
+    /// `[llm]` is set up but this is a nested sandbox (started inside a sandbox), where it is always off.
+    pub llm_off_nested: bool,
+}
+
+impl Settings {
+    /// `[tools] podman`: Podman in the desktop, which also gives the desktop what nested containers need.
+    pub fn podman_tool(&self) -> bool {
+        self.install.iter().any(|t| {
+            t.arg == "INSTALL_PODMAN" && !matches!(t.value.as_str(), "" | "false" | "no" | "0")
+        })
+    }
 }
 
 /// `[llm]`: a local model in its own container (Ollama behind a filtering gateway).
@@ -487,6 +499,7 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
         runtime_source: runtime.1,
         llm,
         llm_off_locally,
+        llm_off_nested: false,
     })
 }
 
@@ -1254,6 +1267,30 @@ mod tests {
         ];
         for (toml, message) in cases {
             assert_eq!(llm_error("", toml), message, "{toml}");
+        }
+    }
+
+    #[test]
+    fn sandbox_inside_is_reserved() {
+        let e = read_str("[env]\nSANDBOX_INSIDE = \"1\"\n")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            e,
+            "sandbox.toml: env.SANDBOX_INSIDE is set by the sandbox; use tools.podman instead."
+        );
+    }
+
+    #[test]
+    fn the_podman_tool_is_on_unless_false() {
+        let mut s = read_str("").unwrap();
+        assert!(!s.podman_tool());
+        for (value, on) in [("true", true), ("false", false), ("", false), ("0", false)] {
+            s.install = vec![ToolSetting {
+                arg: "INSTALL_PODMAN".into(),
+                value: value.into(),
+            }];
+            assert_eq!(s.podman_tool(), on, "{value}");
         }
     }
 

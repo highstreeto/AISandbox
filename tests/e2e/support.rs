@@ -249,6 +249,12 @@ impl Fixture {
             .env("NO_COLOR", "1")
             .env_remove("DOCKER_HOST")
             .env_remove("SANDBOX_RUNTIME")
+            // the tests may run inside a sandbox desktop: not nested unless a test says so
+            .env_remove("SANDBOX_INSIDE")
+            .env_remove("HTTPS_PROXY")
+            .env_remove("https_proxy")
+            .env_remove("HTTP_PROXY")
+            .env_remove("http_proxy")
             .write_stdin("")
             .timeout(Duration::from_secs(120));
         // Docker unless a test chooses otherwise, so a Podman installed on this machine can't change the calls.
@@ -271,6 +277,9 @@ impl Fixture {
             None => {
                 cmd.env("SANDBOX_DIR", &self.dir);
             }
+        }
+        for (k, v) in &opts.env {
+            cmd.env(k, v);
         }
         let shown: Vec<&str> = args.iter().map(|a| a.as_ref()).collect();
         let out = cmd
@@ -539,6 +548,8 @@ pub struct RunOpts {
     pub sandbox_dir: Option<String>,
     /// The value of `SANDBOX_RUNTIME` (default: "docker"; "" leaves it unset).
     pub runtime: Option<String>,
+    /// More environment variables (`SANDBOX_INSIDE`, `HTTPS_PROXY`, … are unset otherwise).
+    pub env: Vec<(String, String)>,
 }
 
 impl RunOpts {
@@ -564,6 +575,10 @@ impl RunOpts {
     }
     pub fn runtime(mut self, runtime: impl Into<String>) -> Self {
         self.runtime = Some(runtime.into());
+        self
+    }
+    pub fn env(mut self, key: &str, value: &str) -> Self {
+        self.env.push((key.to_string(), value.to_string()));
         self
     }
 }

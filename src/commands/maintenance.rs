@@ -237,7 +237,9 @@ fn browser_text(st: &Settings) -> String {
 /// `[llm]`: `qwen3.6:27b (sandbox.toml), GPU nvidia, http://llm:11434`, or why it is off.
 fn llm_text(st: &Settings) -> String {
     let Some(llm) = &st.llm else {
-        return if st.llm_off_locally {
+        return if st.llm_off_nested {
+            "off (nested sandbox)".to_string()
+        } else if st.llm_off_locally {
             format!("off ({})", config::LOCAL_FILE_NAME)
         } else {
             "off".to_string()

@@ -44,4 +44,5 @@ run first, then the end-to-end tests in `tests/e2e`).
 | `e2e/compose_file.rs` | The generated compose file: exact text, each setting, escaping, shares |
 | `e2e/engine.rs` | The engine written to `.state/desktop` and `.state/proxy`: headers, manifest, hand edits, leftovers, old `engine/` layout, `info` Engine row |
 | `e2e/runtime_select.rs` | Docker or Podman (auto, `[host] runtime`, `SANDBOX_RUNTIME`), the Podman calls, its compose file parts, the podman-compose refusal, the NVIDIA CDI check, the `info` Runtime row |
+| `e2e/nested.rs` | `[tools] podman` (the desktop's nesting parts, rootless Podman only) and a nested sandbox (`SANDBOX_INSIDE`: proxy chain, no `[llm]`, read-only `.state/`) |
 | `e2e/init.rs` | `sandbox init`: created and kept files, `.state`, parent `.sandbox` warning, missing folder, no Docker |

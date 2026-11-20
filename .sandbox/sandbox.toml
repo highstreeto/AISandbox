@@ -25,6 +25,7 @@ bun = false
 rust = true
 vscode = false
 jetbrains = false   # e.g. "rider" or ["toolbox", "rider", "idea"]
+podman = true
 #   toolbox rider idea pycharm webstorm clion goland
 #   rustrover datagrip phpstorm rubymine
 apt = [] # extra Ubuntu packages, e.g. ["build-essential", "python3-pip"]

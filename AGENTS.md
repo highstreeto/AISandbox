@@ -70,6 +70,18 @@ there; pure logic gets unit tests in `#[cfg(test)] mod tests` in its module.
 - **Local LLM.** Ollama (`ollama/ollama`, the `-rocm` tag for AMD) on an internal network, behind an nginx gateway
   (`resources/llm/`) that only passes inference and read-only routes and logs usage (`usage.js`, QuickJS). Models live
   in the machine-wide volume `sandbox-llm-models`, which `down`, `reset-home` and engine updates must never touch.
+- **Nested sandboxes.** `[tools] podman` (`tools/podman.sh`) installs rootless Podman + docker-compose-v2 in the
+  desktop, with `newuidmap`/`newgidmap` given file capabilities (setuid root would need CAP_SYS_ADMIN), a
+  `containers.conf.d` drop-in (`utsns = "host"`: the seccomp profile blocks `sethostname`), and two s6 services
+  as `abc`: the API socket for docker-compose and `sandbox-podman-health` (healthchecks; there is no systemd).
+  `custom-cont-init.d/60-podman` writes abc's subuids from the container's id map. The app (`engine/compose.rs`)
+  requires rootless Podman for the tool (`check_nesting`) and sets `host.nesting`: `/dev/fuse`, `/dev/net/tun`,
+  `label=disable`, `unmask=ALL`, pids 32768, the `containers` volume, `SANDBOX_INSIDE=1`. With `SANDBOX_INSIDE=1`
+  the app is nested (`project::inside_sandbox`): `.state/` must be writable (`check_writable`), `[llm]` is dropped
+  (`llm_off_nested`), and `host.nested` runs the proxy with `tinyproxy-nested.conf` (`Upstream` to
+  `sandbox-upstream`, the outer proxy's IP resolved from `$HTTPS_PROXY`), without `hostname` and host-gateway, and builds the images with
+  `http_proxy`/`https_proxy` build args (`x-build-proxy`): docker-compose passes only the uppercase names from
+  `~/.docker/config.json`, which `60-podman` fills in, and apt reads only the lowercase ones.
 
 ## Releases
 
@@ -106,5 +118,7 @@ This repository is often developed from inside the sandbox it builds:
 - Network goes through the allowlist proxy. `index.crates.io` / `static.crates.io` may be allowed, `docs.rs` and
   `crates.io` usually are not: read crate sources in `~/.cargo/registry/src`. Only the user can allow hosts (on the host).
 - `.sandbox/` is read-only; with `workspace = "ro"` the whole project is. Then build in a copy and hand the user a patch. Put it on the user's desktop.
+- With `podman = true` under `[tools]` (rootless Podman host), the app can be tried in itself: in a writable copy
+  (e.g. under `/config`), `./sandbox up` starts a nested sandbox. Its hosts must be allowed in the outer allowlist too.
 - `.git/` is read-only (`protect_git`): no commits, branches or config changes inside; the user commits on the host.
   Read-only git commands may report "dubious ownership" (use `git -c safe.directory='*'`).

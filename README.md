@@ -1,5 +1,9 @@
 # AI Sandbox — a Kubuntu desktop for this project
 
+![Sandbox inside a Sandbox](doc/sandbox-in-sandbox.png)
+
+(Can even start itself!)
+
 A KDE Plasma desktop (LinuxServer.io WebTop) in your browser, set up for one project. It can only reach the hosts you
 allow and only see the folders you share. The settings live in the project's `.sandbox/` folder and are committed, so
 anyone who clones the project gets the same environment.
@@ -100,6 +104,7 @@ bun         = false
 rust        = false         # true = stable, "1.88", ["stable", "nightly"]
 vscode      = false
 jetbrains   = false         # e.g. "rider", ["toolbox", "rider"]
+podman      = false         # Podman in the sandbox (rootless Podman host only), see below
 apt         = []            # extra Ubuntu packages
 
 [desktop]
@@ -178,6 +183,24 @@ SANDBOX_RUNTIME=docker sandbox up
   `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml` once. On Linux, `up` checks this before building.
 - `restart: unless-stopped` only brings containers back after a reboot if `podman-restart.service` is enabled
   (`systemctl --user enable podman-restart`).
+
+### Podman in the sandbox (nested sandboxes)
+
+`podman = true` under `[tools]` installs rootless Podman and docker-compose in the desktop, so the agent can run
+containers there, including a whole sandbox started inside the sandbox (e.g. to test this app). It needs **rootless
+Podman** on the host; with Docker or rootful Podman, commands stop with an error. The desktop then gets `/dev/fuse`,
+`/dev/net/tun`, `label=disable` and `unmask=ALL` (all inside Podman's user namespace, not `--privileged`), a pids
+limit of 32768 and a volume for its images.
+
+- Inside the desktop, run `sandbox` from a **writable copy** of the project (e.g. under `/config`): the project's
+  `.sandbox/` is read-only there.
+- The nested sandbox's proxy forwards to the outer one, so a host must be allowed in **both** allowlists. Its image
+  build downloads through the outer proxy too: allow the *Podman* and *Ubuntu packages* groups and the hosts of the
+  tools it installs.
+- `[llm]` is ignored in a nested sandbox. Give the outer desktop enough memory (`memory = "16g"`).
+- Each level needs user ids: the default range of 65536 ids per user suffices for one nested level. For deeper
+  nesting, give your user a larger range in `/etc/subuid` and `/etc/subgid` (in the Podman machine on
+  Windows/macOS), e.g. `user:524288:1000000`.
 
 ## Local LLM
 
