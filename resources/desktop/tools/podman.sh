@@ -55,7 +55,7 @@ cat > /usr/local/bin/sandbox-podman-health <<'RUNNER'
 # desktop has no systemd (without this, "compose up --wait" never sees a healthy container).
 while true; do
   podman ps --format '{{.ID}} {{.Status}}' 2>/dev/null | awk '/\((healthy|unhealthy|starting)\)/ {print $1}' |
-    while read -r id; do podman healthcheck run "$id" >/dev/null 2>&1; done
+    while read -r id; do podman healthcheck run "$id" </dev/null >/dev/null 2>&1; done   # </dev/null: it reads stdin
   sleep 3
 done
 RUNNER
