@@ -59,6 +59,8 @@ struct Host {
     nested: bool,
     /// Nested: the outer proxy's address (`sandbox-upstream` in the proxy container); empty otherwise.
     upstream_proxy: String,
+    /// Nested: the outer proxy as a URL, passed to image builds as `http_proxy` / `https_proxy` (build args).
+    build_proxy: String,
     id: String,
     workdir: String,
     uid: String,
@@ -222,6 +224,15 @@ fn proxy_host(url: &str) -> Option<String> {
     (!host.is_empty()).then(|| host.to_string())
 }
 
+/// The outer proxy's URL for nested image builds: `10.0.0.5` → `http://10.0.0.5:3128`, IPv6 in brackets.
+fn proxy_url(ip: &str) -> String {
+    if ip.contains(':') {
+        format!("http://[{ip}]:{UPSTREAM_PROXY_PORT}")
+    } else {
+        format!("http://{ip}:{UPSTREAM_PROXY_PORT}")
+    }
+}
+
 /// `base` plus the entries of `extra` it doesn't have yet.
 fn with_extra(base: &[String], extra: &[&str]) -> Vec<String> {
     let mut all = base.to_vec();
@@ -309,6 +320,7 @@ fn model(project: &Project, runtime: &RuntimeInfo, upstream: Option<String>) -> 
             rootless: runtime.rootless,
             nesting,
             nested: upstream.is_some(),
+            build_proxy: upstream.as_deref().map(proxy_url).unwrap_or_default(),
             upstream_proxy: upstream.unwrap_or_default(),
             id: project.id.clone(),
             workdir: project.work_dir.clone(),
@@ -407,6 +419,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn proxy_url_brackets_ipv6() {
+        assert_eq!(proxy_url("10.89.1.25"), "http://10.89.1.25:3128");
+        assert_eq!(proxy_url("fd00::5"), "http://[fd00::5]:3128");
+    }
+
+    #[test]
     fn the_proxy_host_is_taken_from_the_url() {
         assert_eq!(proxy_host("http://proxy:3128").as_deref(), Some("proxy"));
         assert_eq!(proxy_host("http://proxy:3128/").as_deref(), Some("proxy"));
@@ -453,6 +471,7 @@ mod tests {
                 nesting: false,
                 nested: false,
                 upstream_proxy: String::new(),
+                build_proxy: String::new(),
                 id: "x\"y".into(),
                 workdir: String::new(),
                 uid: String::new(),

@@ -79,7 +79,9 @@ there; pure logic gets unit tests in `#[cfg(test)] mod tests` in its module.
   `label=disable`, `unmask=ALL`, pids 32768, the `containers` volume, `SANDBOX_INSIDE=1`. With `SANDBOX_INSIDE=1`
   the app is nested (`project::inside_sandbox`): `.state/` must be writable (`check_writable`), `[llm]` is dropped
   (`llm_off_nested`), and `host.nested` runs the proxy with `tinyproxy-nested.conf` (`Upstream` to
-  `sandbox-upstream`, the outer proxy's IP resolved from `$HTTPS_PROXY`), without `hostname` and host-gateway.
+  `sandbox-upstream`, the outer proxy's IP resolved from `$HTTPS_PROXY`), without `hostname` and host-gateway, and builds the images with
+  `http_proxy`/`https_proxy` build args (`x-build-proxy`): docker-compose passes only the uppercase names from
+  `~/.docker/config.json`, which `60-podman` fills in, and apt reads only the lowercase ones.
 
 ## Releases
 

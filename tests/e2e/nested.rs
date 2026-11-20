@@ -154,6 +154,11 @@ fn a_nested_sandbox_chains_its_proxy_to_the_outer_one() {
         "    command: [\"tinyproxy\", \"-d\", \"-c\", \"/etc/tinyproxy/tinyproxy-nested.conf\"]",
     );
     assert_has(&text, "      - \"sandbox-upstream:127.0.0.1\"\n");
+    // builds get the outer proxy in the lowercase names too (apt reads only those)
+    assert_has(&text, "  http_proxy: \"http://127.0.0.1:3128\"\n");
+    assert_has(&text, "  https_proxy: \"http://127.0.0.1:3128\"\n");
+    assert_has(&text, "    build: {context: ./.state/proxy, args: *build-proxy}\n");
+    assert_has(&text, "      args:\n        <<: *build-proxy\n");
     assert_lacks(&text, "host-gateway");
     assert_lacks(&text, "hostname:");
     // not a nesting desktop itself without the tool

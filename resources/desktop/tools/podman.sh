@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUT: Rootless Podman + docker-compose: containers and nested sandboxes (host: rootless Podman only). No options
-# HOSTS: registry-1.docker.io auth.docker.io production.cloudflare.docker.com ghcr.io lscr.io pkg-containers.githubusercontent.com (images)
+# HOSTS: registry-1.docker.io auth.docker.io production.cloudfront.docker.com ghcr.io lscr.io pkg-containers.githubusercontent.com (images)
 source "$(dirname "$0")/_lib.sh"
 
 # docker-compose-v2 is what "podman compose" hands the compose file to (through the API socket below);

@@ -90,11 +90,20 @@ static.crates.io
 # account.jetbrains.com
 # *.jetbrains.com
 
+# --- Podman in the sandbox ([tools] podman: image pulls, nested sandboxes) ---
+# | A nested sandbox builds its images through this proxy: also allow the Ubuntu packages group
+# | and the hosts of every tool its sandbox.toml installs.
+registry-1.docker.io
+auth.docker.io
+production.cloudfront.docker.com
+ghcr.io
+lscr.io
+pkg-containers.githubusercontent.com
+dl-cdn.alpinelinux.org
+archive.ubuntu.com
+security.ubuntu.com
+
 # --- Local LLM on the host (Ollama, LM Studio, llama.cpp, ...) --------------
 # Make the server listen on 0.0.0.0 on the host, then use e.g.
 #   http://host.docker.internal:11434   from inside the sandbox.
 # host.docker.internal
-registry-1.docker.io
-auth.docker.io
-production.cloudfront.docker.com
-dl-cdn.alpinelinux.org

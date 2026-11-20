@@ -48,7 +48,7 @@ directory, subuids for `abc`, and an unmasked `/proc` so nested containers can m
   that every 3 s runs `podman healthcheck run` for each container whose status shows `(healthy|unhealthy|starting)`.
 - `resources/init/allowlist.txt`: a commented **podman** group with what a nested *build* needs through the outer
   proxy: `lscr.io`, `ghcr.io`, `pkg-containers.githubusercontent.com`, `registry-1.docker.io`, `auth.docker.io`,
-  `production.cloudflare.docker.com`, `dl-cdn.alpinelinux.org`, `archive.ubuntu.com`, `security.ubuntu.com`. Note in
+  `production.cloudfront.docker.com`, `dl-cdn.alpinelinux.org`, `archive.ubuntu.com`, `security.ubuntu.com`. Note in
   the group comment: the tools' download hosts must be allowed too (the inner build runs through the outer proxy).
 - `resources/init/sandbox.toml` + README: `podman = false  # Podman in the sandbox (rootless Podman host only): containers and nested sandboxes`.
 
