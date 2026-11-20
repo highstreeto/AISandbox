@@ -46,7 +46,7 @@ memory = "8g"
 # model or context, or set gpu = "nvidia" | "amd" | "none" (CPU).
 [llm]
 enabled = true            # on with the default model
-model = "qwen3.6:27b"     # Ollama model tag; this is the default model for a 24 GB GPU
+model = "qwen3.8:27b"     # Ollama model tag; this is the default model for a 24 GB GPU
 context = 65536           # context length in tokens (2048 and up; more needs more VRAM)
 keep_alive = "30m"        # how long a model stays in VRAM after the last request
 
