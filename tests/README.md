@@ -43,5 +43,5 @@ run first, then the end-to-end tests in `tests/e2e`).
 | `e2e/errors.rs` | Docker missing or not running, failing docker calls, invalid `sandbox.toml` (every check) / hosts, old `sandbox.yml` |
 | `e2e/compose_file.rs` | The generated compose file: exact text, each setting, escaping, shares |
 | `e2e/engine.rs` | The engine written to `.state/desktop` and `.state/proxy`: headers, manifest, hand edits, leftovers, old `engine/` layout, `info` Engine row |
-| `e2e/runtime_select.rs` | Docker or Podman (auto, `[host] runtime`, `SANDBOX_RUNTIME`), the Podman calls, its compose file parts, the NVIDIA CDI check, the `info` Runtime row |
+| `e2e/runtime_select.rs` | Docker or Podman (auto, `[host] runtime`, `SANDBOX_RUNTIME`), the Podman calls, its compose file parts, the podman-compose refusal, the NVIDIA CDI check, the `info` Runtime row |
 | `e2e/init.rs` | `sandbox init`: created and kept files, `.state`, parent `.sandbox` warning, missing folder, no Docker |

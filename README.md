@@ -169,8 +169,9 @@ SANDBOX_RUNTIME=docker sandbox up
 
 `info` shows which runtime is used and why. **Podman notes:**
 
-- `podman compose` runs the compose file with docker-compose if it is installed (recommended, fully compatible), else
-  with podman-compose. Windows/macOS: start the Podman machine first (`podman machine start`).
+- Podman needs **docker-compose** as its compose provider: `podman compose` uses it automatically once it is
+  installed. podman-compose doesn't work (it lacks flags the sandbox uses); with only podman-compose, commands stop
+  with an error that says so. Windows/macOS: start the Podman machine first (`podman machine start`).
 - Rootless Podman: the desktop keeps your user id (`userns_mode: keep-id`), so files the agent writes in the project
   are yours on the host. Bind mounts are labelled for SELinux (`z`), as Fedora/RHEL need.
 - The LLM's NVIDIA GPU is a CDI device: install the NVIDIA Container Toolkit and run

@@ -27,7 +27,7 @@ pub fn parse_ps(json: &str) -> Result<Vec<ServiceState>> {
 }
 
 /// The JSON objects of a `ps --format json` output: one per line, or one array.
-pub fn parse_entries(json: &str) -> Result<Vec<serde_json::Value>> {
+fn parse_entries(json: &str) -> Result<Vec<serde_json::Value>> {
     let text = json.trim();
     let docs: Vec<&str> = if text.starts_with('[') {
         vec![text]
@@ -48,7 +48,7 @@ pub fn parse_entries(json: &str) -> Result<Vec<serde_json::Value>> {
 }
 
 /// One entry of compose's own JSON.
-pub fn to_state(e: &serde_json::Value) -> ServiceState {
+fn to_state(e: &serde_json::Value) -> ServiceState {
     ServiceState {
         service: text(e, "Service"),
         state: text(e, "State"),

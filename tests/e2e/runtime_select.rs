@@ -1,5 +1,5 @@
 //! Docker or Podman: which runtime runs (auto, `[host] runtime`, `SANDBOX_RUNTIME`), the Podman calls, the
-//! Podman parts of the compose file and the NVIDIA check. PATH holds only the fake programs here, so a real Podman
+//! Podman parts of the compose file, the compose provider check and the NVIDIA check. PATH holds only the fake programs here, so a real Podman
 //! or Docker on this machine doesn't matter.
 
 use crate::support::*;
@@ -9,6 +9,7 @@ use std::fs;
 fn podman_status_calls(f: &Fixture) -> Vec<Call> {
     vec![
         podman_info(),
+        podman_compose_version(),
         f.podman_collision_check(),
         f.podman_compose(&["ps", "-a", "--format", "json"]),
         f.podman_compose(&["port", "gateway", "3001"]),
@@ -134,6 +135,7 @@ fn podman_up_builds_starts_and_prints_the_url() {
         &r,
         &[
             podman_info(),
+            podman_compose_version(),
             f.podman_collision_check(),
             f.podman_compose(&["build"]),
             f.podman_compose(&["up", "-d", "--wait", "--wait-timeout", "300"]),
@@ -152,6 +154,7 @@ fn podman_reset_home_removes_the_volume_with_podman() {
         &r,
         &[
             podman_info(),
+            podman_compose_version(),
             f.podman_collision_check(),
             f.podman_compose(&["down"]),
             podman(&["volume", "rm", &format!("{PROJECT_NAME}_home")]),
@@ -160,17 +163,34 @@ fn podman_reset_home_removes_the_volume_with_podman() {
 }
 
 #[test]
-fn podman_status_reads_podman_compose_json() {
+fn podman_compose_as_provider_is_refused_before_any_compose_call() {
     let f = Fixture::new();
-    let podman_ps = r#"[{"Names":["demo_desktop_1"],"State":"running","Status":"Up 2 minutes (healthy)","Labels":{"com.docker.compose.service":"desktop"},"Ports":null},{"State":"running","Status":"Up 2 minutes","Labels":{"com.docker.compose.service":"gateway"},"Ports":[{"host_ip":"127.0.0.1","container_port":3001,"host_port":49153,"range":1,"protocol":"tcp"}]}]"#;
+    let r = f.run_with(
+        &["up", "--no-open"],
+        auto(&f, true, false).rules(vec![
+            rule("compose version").stdout("podman-compose version 1.5.0\npodman version 5.7.0\n"),
+        ]),
+    );
+    assert_exit(&r, 1);
+    assert_calls(&r, &[podman_info(), podman_compose_version()]);
+    assert_output(
+        &r,
+        "podman compose uses podman-compose, which the sandbox doesn't support.",
+    );
+    assert_output(&r, "Install docker-compose");
+}
+
+#[test]
+fn docker_compose_as_provider_is_used() {
+    let f = Fixture::new();
     let r = f.run_with(
         &["status"],
-        auto(&f, true, false).rules(vec![rule("ps -a --format json").stdout(podman_ps)]),
+        auto(&f, true, false).rules(vec![
+            rule("compose version").stdout("Docker Compose version v2.40.3\n"),
+        ]),
     );
     assert_exit(&r, 0);
-    for s in ["desktop", "gateway", "healthy", "127.0.0.1:49153→3001"] {
-        assert_output(&r, s);
-    }
+    assert_calls(&r, &podman_status_calls(&f));
 }
 
 #[test]
@@ -243,6 +263,7 @@ fn podman_up_stops_before_building_without_the_nvidia_cdi_device() {
         &r,
         &[
             podman_info(),
+            podman_compose_version(),
             f.podman_collision_check(),
             call("nvidia-ctk", &["cdi", "list"]),
         ],
@@ -264,10 +285,10 @@ fn podman_up_checks_the_nvidia_cdi_device_then_builds() {
         ]),
     );
     assert_exit(&r, 0);
-    assert_eq!(r.calls[2], call("nvidia-ctk", &["cdi", "list"]), "{r}");
-    assert_eq!(r.calls[3], f.podman_compose(&["build"]), "{r}");
+    assert_eq!(r.calls[3], call("nvidia-ctk", &["cdi", "list"]), "{r}");
+    assert_eq!(r.calls[4], f.podman_compose(&["build"]), "{r}");
     assert_eq!(
-        r.calls[4],
+        r.calls[5],
         podman(&["volume", "inspect", "sandbox-llm-models"]),
         "{r}"
     );

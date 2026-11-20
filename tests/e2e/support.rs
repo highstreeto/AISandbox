@@ -430,6 +430,11 @@ pub fn podman_info() -> Call {
     ])
 }
 
+/// `podman compose version`: which compose provider Podman uses.
+pub fn podman_compose_version() -> Call {
+    podman(&["compose", "version"])
+}
+
 /// A call of a program other than docker (the browser opener).
 pub fn call(name: &str, args: &[&str]) -> Call {
     Call {

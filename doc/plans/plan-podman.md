@@ -1,12 +1,12 @@
 # Podman support (default when both are installed)
 
-> **Status:** implemented; not yet tried on a real Podman host (no Podman where it was written). See *As built*.
+> **Status:** implemented; tried on Ubuntu with Podman 5.7: works with docker-compose as compose provider, podman-compose is refused. See *As built*.
 
 ## Context
 `sandbox` drives everything through the `docker` CLI: `docker compose`, `docker info`, `docker ps`, and `docker volume`. Most of that is in `src/docker.rs`; two `volume` calls are in `src/commands/maintenance.rs:95` and `lifecycle.rs`. We want Podman to work as well, and to be chosen automatically when it is installed (even if Docker is too).
 
 Decisions made:
-- Compose runs through **`podman compose`**. That delegates to docker-compose (through the Podman socket) when available, otherwise to podman-compose.
+- Compose runs through **`podman compose`**. That delegates to docker-compose (through the Podman socket) when available, otherwise to podman-compose. (As built: only docker-compose works; see the end of *As built*.)
 - Override: env var **`SANDBOX_RUNTIME=auto|podman|docker`** (it wins), then **`[host] runtime = "auto"|"podman"|"docker"`** in `sandbox.local.toml` (machine-specific). It is also accepted in `sandbox.toml` because `[host]` is allowed in both files.
 
 ## Design
@@ -167,3 +167,14 @@ and refactors from trying it. Differences and details worth knowing:
   `port`, `exec -T`), then with podman-compose, which may not support `--project-directory`, `--wait` or
   `port`/`ps --format json` the way docker-compose does; file ownership in the project after the agent writes files;
   the CDI GPU in Ollama.
+- **docker-compose is required (found on a real host).** A manual test (Ubuntu, Podman 5.7, podman-compose 1.5.0)
+  showed that podman-compose rejects flags every call passes: `--project-directory` (not in its usage), `up --wait
+  --wait-timeout`, `ps -a` (argparse "unrecognized arguments" and a usage dump). With docker-compose as provider all
+  calls work. So Podman's `check_running` runs `podman compose version` once per command, right after `podman info`;
+  if the output names podman-compose, the command stops before any compose call: "podman compose uses
+  podman-compose, which the sandbox doesn't support. Install docker-compose (Podman uses it automatically) and try
+  again. If docker-compose is installed, set compose_providers under `[engine]` in containers.conf to its path." A
+  failing `compose version` (no provider) is left to the first compose call. Supporting podman-compose is out of
+  scope. The podman-compose `ps` JSON parsing (`from_podman_ps`, Podman's `compose_ps` override) was removed as dead
+  code; `ps::parse_entries` / `ps::to_state` are private again. Every Podman command makes one more call (e2e:
+  `podman_compose_version()`); `podman_compose_as_provider_is_refused_before_any_compose_call` covers the refusal.

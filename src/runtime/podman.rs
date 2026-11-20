@@ -1,17 +1,21 @@
-//! Podman with `podman compose`, which hands the compose file to docker-compose (through Podman's socket) or to
-//! podman-compose, whichever is installed.
+//! Podman with `podman compose`, which hands the compose file to docker-compose (through Podman's socket).
+//! podman-compose, the other provider `podman compose` can use, doesn't know flags every compose call passes
+//! (`--project-directory`, `up --wait`, `ps -a`), so [`Podman::check_running`] refuses it.
 
-use super::{Ctx, Runtime, RuntimeInfo, RuntimeKind, ServiceState, ps};
+use super::{Ctx, Runtime, RuntimeInfo, RuntimeKind};
 use crate::config::LlmGpu;
 use crate::process;
 use crate::ui::Ui;
 use anyhow::{Result, bail};
-use serde_json::Value;
 
 /// The CDI name of every NVIDIA GPU (`nvidia-ctk cdi generate`).
 const NVIDIA_CDI_DEVICE: &str = "nvidia.com/gpu=all";
 /// Where CDI specs are read from.
 const CDI_DIRS: &[&str] = &["/etc/cdi", "/var/run/cdi"];
+
+const PODMAN_COMPOSE_MESSAGE: &str = "podman compose uses podman-compose, which the sandbox doesn't support. \
+    Install docker-compose (Podman uses it automatically) and try again. If docker-compose is installed, \
+    set compose_providers under [engine] in containers.conf to its path.";
 
 pub struct Podman<'a> {
     ctx: Ctx<'a>,
@@ -43,6 +47,21 @@ impl<'a> Podman<'a> {
             })
         })
     }
+
+    /// Whether `podman compose` hands over to podman-compose: `podman compose version` names the provider
+    /// ("podman-compose version 1.5.0"; docker-compose: "Docker Compose version v2…"). A failing call (no
+    /// provider at all) is left to the first compose call to report.
+    fn uses_podman_compose(&self, ui: &Ui) -> bool {
+        let r = self.run(ui, &["compose", "version"]);
+        r.exit_code == 0 && is_podman_compose(&format!("{}\n{}", r.stdout, r.stderr))
+    }
+}
+
+/// The output of `podman compose version` comes from podman-compose.
+fn is_podman_compose(version_output: &str) -> bool {
+    version_output
+        .to_ascii_lowercase()
+        .contains("podman-compose")
 }
 
 impl Runtime for Podman<'_> {
@@ -59,7 +78,7 @@ impl Runtime for Podman<'_> {
         &[("PODMAN_COMPOSE_WARNING_LOGS", "false")]
     }
 
-    /// `--ansi` is a docker-compose flag that podman-compose doesn't know; both read these.
+    /// Instead of `--ansi never` (Docker passes it as a flag); docker-compose reads these too.
     fn captured_env(&self) -> &'static [(&'static str, &'static str)] {
         &[("COMPOSE_ANSI", "never"), ("NO_COLOR", "1")]
     }
@@ -84,6 +103,9 @@ impl Runtime for Podman<'_> {
         );
         if r.exit_code != 0 {
             bail!(self.not_running_message());
+        }
+        if self.uses_podman_compose(ui) {
+            bail!(PODMAN_COMPOSE_MESSAGE);
         }
         let mut words = r.stdout.split_whitespace();
         let version = words.next().unwrap_or_default().to_string();
@@ -114,29 +136,6 @@ impl Runtime for Podman<'_> {
         .lines()
     }
 
-    /// docker-compose prints its own JSON; podman-compose prints `podman ps` JSON.
-    fn compose_ps(&self, ui: &Ui) -> Result<Vec<ServiceState>> {
-        let r = self.compose(ui, &["ps", "-a", "--format", "json"], false);
-        if r.exit_code != 0 || r.stdout.trim().is_empty() {
-            return Ok(Vec::new());
-        }
-        ps::sorted(
-            self.program(),
-            ps::parse_entries(&r.stdout).map(|entries| {
-                entries
-                    .iter()
-                    .map(|e| {
-                        if e.get("Service").is_some() {
-                            ps::to_state(e)
-                        } else {
-                            from_podman_ps(e)
-                        }
-                    })
-                    .collect()
-            }),
-        )
-    }
-
     /// The NVIDIA GPU needs a CDI spec on a Linux host; in a Podman machine it lives in the VM (no check).
     fn check_before_up(&self, ui: &Ui) -> Result<()> {
         let wants_nvidia = self
@@ -163,85 +162,19 @@ impl Runtime for Podman<'_> {
     }
 }
 
-/// One entry of `podman ps --format json`: the service is a label, health is in the status text, ports are
-/// `host_ip` / `host_port` / `container_port`.
-fn from_podman_ps(e: &Value) -> ServiceState {
-    let text = |v: Option<&Value>| v.and_then(Value::as_str).unwrap_or("").to_string();
-    let service = text(
-        e.get("Labels")
-            .and_then(|l| l.get("com.docker.compose.service")),
-    );
-    let status = text(e.get("Status"));
-    let health = ["unhealthy", "healthy", "starting"]
-        .into_iter()
-        .find(|h| status.contains(&format!("({h})")))
-        .unwrap_or("")
-        .to_string();
-    let mut ports: Vec<String> = Vec::new();
-    for p in e
-        .get("Ports")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-    {
-        let published = p.get("host_port").and_then(Value::as_i64).unwrap_or(0);
-        if published <= 0 {
-            continue;
-        }
-        let target = p.get("container_port").and_then(Value::as_i64).unwrap_or(0);
-        let ip = text(p.get("host_ip"));
-        let ip = if ip.is_empty() {
-            "0.0.0.0".to_string()
-        } else {
-            ip
-        };
-        let entry = format!("{ip}:{published}→{target}");
-        if !ports.contains(&entry) {
-            ports.push(entry);
-        }
-    }
-    ServiceState {
-        service,
-        state: text(e.get("State")),
-        health,
-        status,
-        ports: ports.join(", "),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn reads_podman_ps_entries() {
-        let json = r#"[{"Names":["demo_desktop_1"],"State":"running","Status":"Up 2 minutes (healthy)",
-            "Labels":{"com.docker.compose.service":"desktop"},"Ports":null},
-            {"State":"running","Status":"Up 2 minutes","Labels":{"com.docker.compose.service":"gateway"},
-            "Ports":[{"host_ip":"127.0.0.1","container_port":3001,"host_port":49153,"range":1,"protocol":"tcp"},
-                     {"host_ip":"","container_port":80,"host_port":0}]}]"#;
-        let entries = ps::parse_entries(json).unwrap();
-        let s: Vec<ServiceState> = entries.iter().map(from_podman_ps).collect();
-        assert_eq!(
-            s[0],
-            ServiceState {
-                service: "desktop".into(),
-                state: "running".into(),
-                health: "healthy".into(),
-                status: "Up 2 minutes (healthy)".into(),
-                ports: "".into(),
-            }
-        );
-        assert_eq!(s[1].service, "gateway");
-        assert_eq!(s[1].health, "");
-        assert_eq!(s[1].ports, "127.0.0.1:49153→3001");
-    }
-
-    #[test]
-    fn unhealthy_is_not_read_as_healthy() {
-        let e: Value =
-            serde_json::from_str(r#"{"State":"running","Status":"Up 1 minute (unhealthy)"}"#)
-                .unwrap();
-        assert_eq!(from_podman_ps(&e).health, "unhealthy");
+    fn tells_the_compose_providers_apart() {
+        assert!(is_podman_compose(
+            "podman-compose version 1.5.0\npodman version 5.7.0\n"
+        ));
+        assert!(is_podman_compose(
+            ">>>> Executing external compose provider \"/usr/bin/podman-compose\". <<<<\n"
+        ));
+        assert!(!is_podman_compose("Docker Compose version v2.40.3\n"));
+        assert!(!is_podman_compose(""));
     }
 }
