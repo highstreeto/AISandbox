@@ -116,7 +116,7 @@ jobs:
             (cd pkg && 7z a -tzip "../dist/$name.zip" .)
           else
             cp "$bin" "dist/$name"
-            tar -czf "dist/$name.tar.gz" -C pkg *
+            tar -czf "dist/$name.tar.gz" -C pkg "$bin" README.md LICENSE
           fi
       - uses: actions/upload-artifact@v4
         with:
