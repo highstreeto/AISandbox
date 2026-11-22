@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="Excalidraw SVG" pattern="file:*.excalidraw.svg" />
+</component>
