@@ -58,8 +58,10 @@ there; pure logic gets unit tests in `#[cfg(test)] mod tests` in its module.
   updated silently; files that differ from both were edited by hand and are restored with a warning. Leftover files are
   deleted, nothing else in `.state/` is touched. The manifest is written last, so every step is idempotent.
 - **Compose.** The template gets the settings plus host facts (user ids, time zone, mounts, UI port). The UI port, the
-  project mounts, the read-only `.sandbox` mount and the proxy settings come from the template only, so nothing in
-  `sandbox.toml` can change them.
+  project mounts, the `.sandbox` mount and the proxy settings come from the template only, so nothing in
+  `sandbox.toml` can change them. `protect_sandbox`: `"hide"` mounts the empty `.state/empty/` (emptied on every run)
+  read-only over `.sandbox` (not a tmpfs: Podman copies what is under a tmpfs into it, `tmpcopyup`), `true` mounts it
+  read-only; it is never writable (`false` is an error).
 - **Settings.** Unknown sections/keys/tools, wrong types and invalid values are errors that list the valid names.
   `sandbox.local.toml` may only hold `[host]` and `[llm]`; within `[llm]`, `gpu` is local-only and `models` /
   `keep_alive` are `sandbox.toml`-only. Reserved environment names (`RESERVED_ENV` in `src/config/mod.rs`) are
@@ -117,8 +119,9 @@ This repository is often developed from inside the sandbox it builds:
 
 - Network goes through the allowlist proxy. `index.crates.io` / `static.crates.io` may be allowed, `docs.rs` and
   `crates.io` usually are not: read crate sources in `~/.cargo/registry/src`. Only the user can allow hosts (on the host).
-- `.sandbox/` is read-only; with `workspace = "ro"` the whole project is. Then build in a copy and hand the user a patch. Put it on the user's desktop.
+- `.sandbox/` is hidden (empty) or read-only (`protect_sandbox`); with `workspace = "ro"` the whole project is read-only. Then build in a copy and hand the user a patch. Put it on the user's desktop.
 - With `podman = true` under `[tools]` (rootless Podman host), the app can be tried in itself: in a writable copy
-  (e.g. under `/config`), `./sandbox up` starts a nested sandbox. Its hosts must be allowed in the outer allowlist too.
+  (e.g. under `/config`), `./sandbox up` starts a nested sandbox. The copy needs `.sandbox/`, so the outer sandbox
+  must not hide it (`protect_sandbox = true`). Its hosts must be allowed in the outer allowlist too.
 - `.git/` is read-only (`protect_git`): no commits, branches or config changes inside; the user commits on the host.
   Read-only git commands may report "dubious ownership" (use `git -c safe.directory='*'`).

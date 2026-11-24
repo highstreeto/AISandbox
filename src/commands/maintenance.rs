@@ -119,6 +119,10 @@ pub fn info(ui: &Ui, project: &Project) -> Result<i32> {
             }
             .into(),
         ),
+        (
+            "Protect .sandbox".into(),
+            st.protect_sandbox.describe().into(),
+        ),
         ("Protect .git".into(), yes_no(st.protect_git).into()),
         (
             "UI port".into(),
