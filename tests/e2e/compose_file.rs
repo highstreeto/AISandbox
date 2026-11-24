@@ -269,7 +269,7 @@ fn default_file_matches_exactly() {
         format!("      sandbox.id: \"{ID}\""),
         "    environment:".into(),
         "      TITLE: \"AI Sandbox\"".into(),
-        "      SANDBOX_SUDO: \"true\"".into(),
+        "      SANDBOX_SUDO: \"false\"".into(),
         "      HTTP_PROXY: http://proxy:3128".into(),
         "      HTTPS_PROXY: http://proxy:3128".into(),
         "      http_proxy: http://proxy:3128".into(),
@@ -557,14 +557,14 @@ fn an_empty_sandbox_toml_uses_the_defaults() {
     let desktop = service(&root, "desktop");
     assert!(!has(&desktop, &["build", "args", "INSTALL_CLAUDE"]));
     assert_eq!(str_(&desktop, &["environment", "TITLE"]), "AI Sandbox");
-    assert_eq!(str_(&desktop, &["environment", "SANDBOX_SUDO"]), "true");
+    assert_eq!(str_(&desktop, &["environment", "SANDBOX_SUDO"]), "false");
     assert_eq!(str_(&desktop, &["mem_limit"]), "8g");
     assert!(!has(&desktop, &["cpus"]));
     assert!(!has(&desktop, &["devices"]));
     assert!(!has(&desktop, &["environment", "CUSTOM_USER"]));
     assert_eq!(
         binds(&root),
-        [project(&f, false), sandbox_dir(&f), git_dir(&f)]
+        [project(&f, true)]
     );
 }
 

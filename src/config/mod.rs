@@ -316,7 +316,7 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
 
     // --- [project] ---
     let name = project.str("name")?;
-    let workspace = project.str("workspace")?.unwrap_or("rw");
+    let workspace = project.str("workspace")?.unwrap_or("ro");
     if workspace != "rw" && workspace != "ro" {
         return Err(error(format!(
             "project.workspace must be \"rw\" or \"ro\" (got \"{workspace}\")."
@@ -353,7 +353,7 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
 
     // --- [desktop] ---
     let title = desktop.str("title")?.unwrap_or("AI Sandbox").to_string();
-    let sudo = desktop.bool("sudo")?.unwrap_or(true);
+    let sudo = desktop.bool("sudo")?.unwrap_or(false);
     let memory = desktop.str("memory")?.unwrap_or("8g").to_string();
     if !MEMORY_SIZE.is_match(&memory) {
         return Err(error(format!(
@@ -847,7 +847,7 @@ mod tests {
     #[test]
     fn defaults() {
         let s = read_str("").unwrap();
-        assert!(!s.read_only && s.protect_git && s.sudo);
+        assert!(s.read_only && s.protect_git && !s.sudo);
         assert_eq!((s.title.as_str(), s.memory.as_str()), ("AI Sandbox", "8g"));
         assert!(s.install.is_empty() && s.cpus.is_none() && s.auth.is_none());
     }
