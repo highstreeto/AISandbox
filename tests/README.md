@@ -21,7 +21,7 @@ cargo xtask coverage --open   # the same, then open the report
 
 Needs `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov --locked` once. The `sandbox` runs
 of the end-to-end tests are measured as well; the test code under `tests/` is not counted. The minimum is
-`MIN_LINE_COVERAGE` in `xtask/src/main.rs`.
+`MIN_LINE_COVERAGE` in `xtask/src/test.rs`.
 
 ## How it works
 

@@ -19,7 +19,7 @@ jobs:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
-      - name: All tests with coverage, report and minimum (MIN_LINE_COVERAGE in xtask/src/main.rs)
+      - name: All tests with coverage, report and minimum (MIN_LINE_COVERAGE in xtask/src/test.rs)
         run: cargo xtask ci
       - uses: actions/upload-artifact@v4
         if: always()

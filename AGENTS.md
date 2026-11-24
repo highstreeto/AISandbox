@@ -18,7 +18,7 @@ What a coding agent needs to change this repository. The user-facing docs are in
 | `src/allowlist.rs` | Line-based edits of `allowlist.txt` that keep comments and groups |
 | `src/ui/` | Terminal output (panels, tables) |
 | `resources/` | The engine, compiled into the binary: compose template, Dockerfiles, tool scripts, proxy and LLM gateway config, `init/` templates |
-| `xtask/` | Development tasks run by CI and locally: `cargo xtask test`, `coverage`, `ci` |
+| `xtask/` | Development tasks run by CI and locally: `cargo xtask test`, `coverage`, `ci` (`test.rs`); the release steps `version`, `package`, `assets` and their dry run `dist` (`release.rs`); shared file and process helpers in `main.rs` |
 | `tests/` | End-to-end tests against a fake `docker` (see [tests/README.md](tests/README.md)) |
 | `install/` | `install.sh` / `install.ps1`: download a release, verify `SHA256SUMS`, put `sandbox` on PATH |
 | `.github/` | `workflows/test.yml` (tests), `workflows/release.yml` (releases); `cliff.toml` (changelog and version rules) is in the root |
@@ -34,14 +34,15 @@ cargo build
 cargo xtask test       # all tests (cargo test --workspace --all-targets --locked)
 cargo xtask coverage   # all tests with coverage, HTML report, minimum check
 cargo xtask ci         # what CI runs (.github/workflows/test.yml): coverage, so the tests run once
+cargo xtask dist       # release dry run for this machine's target: build, package, assets in target/dist/
 cargo clippy --all-targets --workspace
 ```
 
-`xtask/` (a workspace member without dependencies, alias in `.cargo/config.toml`) holds what CI runs, so it can be run
+`xtask/` (a workspace member that only uses crates the app has too, alias in `.cargo/config.toml`) holds what CI runs, so it can be run
 locally. Coverage uses [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov), entirely local (once:
 `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov --locked`). It counts what the end-to-end
 tests run in the `sandbox` binary too; `tests/` itself is left out. The report is `target/llvm-cov/html/index.html`
-(`--open` opens it); total line coverage below `MIN_LINE_COVERAGE` (`xtask/src/main.rs`) fails the build. In CI the
+(`--open` opens it); total line coverage below `MIN_LINE_COVERAGE` (`xtask/src/test.rs`) fails the build. In CI the
 summary goes to the job summary and the HTML report is the `coverage-html` artifact.
 
 The end-to-end tests are the specification: they run the built `sandbox` binary against `fake-docker` and assert the
@@ -110,6 +111,13 @@ first version and nothing is committed back.
   Changed, patch; `docs`/`test`/`ci`/`build`/`chore`/`style` → not listed, no release on their own; `!` after the type
   or a `BREAKING CHANGE:` footer → major (minor while the version is 0.x). Anything unconventional lands under Other
   and counts as a patch. Dry run: `git cliff --bumped-version` and `git cliff --unreleased --bump`.
+- **Steps** are xtask tasks (`xtask/src/release.rs`), the workflow only runs them per job: `cargo xtask version`
+  (git-cliff: `tag`/`version`/`release` to `$GITHUB_OUTPUT`, `target/dist/notes.md` and `CHANGELOG.md`),
+  `cargo xtask package --target <triple>` (build with `SANDBOX_RELEASE_VERSION`, smoke test `--version` unless
+  `--no-smoke`, binary and archive to `target/dist/files/`; the archive must hold exactly `sandbox[.exe]`, `README.md`
+  and `LICENSE` at its top level), `cargo xtask assets` (`target/dist/assets/` with `VERSION` and `SHA256SUMS`, computed
+  with `sha2`). `cargo xtask dist [--version x.y.z]` runs all three locally for the host target (without git-cliff: the
+  crate version and a placeholder changelog). Archives need `tar`, Windows targets `7z`.
 - **Changelog**: the release notes are that release's section; the full `CHANGELOG.md` is a release asset.
 - **Targets**: `x86_64`/`aarch64-unknown-linux-musl` (static), `x86_64-pc-windows-msvc`, `aarch64`/`x86_64-apple-darwin`.
   Assets per target: `sandbox-<target>.tar.gz|.zip` (binary, README, LICENSE, for the install scripts) and the raw

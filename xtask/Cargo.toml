@@ -7,6 +7,9 @@ description = "Development tasks for the sandbox app: what CI runs, runnable loc
 license = "MIT"
 publish = false
 
+[dependencies]
+sha2 = "0.11" # the same as the app's (`sandbox upgrade` verifies with it)
+
 [lints.rust]
 unsafe_code = "forbid"
 
