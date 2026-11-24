@@ -1,8 +1,6 @@
 name: Tests
 
 on:
-  push:
-    branches-ignore: [main] # main is tested by the release workflow before it releases
   pull_request:
   workflow_call:
 
