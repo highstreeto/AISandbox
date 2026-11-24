@@ -115,9 +115,9 @@ fn binds(root: &Yaml) -> Vec<Bind> {
     volumes
         .iter()
         .filter(|v| matches!(v, Yaml::Hash(_)))
-        .filter(|m| str_(m, &["type"]) == "bind")
         .map(|m| {
             assert_eq!(keys(m), ["type", "source", "target", "read_only"]);
+            assert_eq!(str_(m, &["type"]), "bind");
             let ro = str_(m, &["read_only"]);
             assert!(ro == "true" || ro == "false", "{ro}");
             Bind {
@@ -154,8 +154,21 @@ fn service(root: &Yaml, name: &str) -> Yaml {
 fn project(f: &Fixture, ro: bool) -> Bind {
     bind(f.project_dir.as_str(), f.work_dir(), ro)
 }
-fn sandbox_dir(f: &Fixture) -> Bind {
-    bind(f.dir.as_str(), format!("{}/.sandbox", f.work_dir()), true)
+/// `protect_sandbox = "hide"`: the empty `.state/empty` over `.sandbox`.
+fn hidden_sandbox_dir(f: &Fixture) -> Bind {
+    bind(
+        f.dir.join(".state").join("empty").as_str(),
+        format!("{}/.sandbox", f.work_dir()),
+        true,
+    )
+}
+/// `protect_git = "hide"`: the empty `.state/<name>` over `.git`.
+fn hidden_git(f: &Fixture, name: &str) -> Bind {
+    bind(
+        f.dir.join(".state").join(name).as_str(),
+        format!("{}/.git", f.work_dir()),
+        true,
+    )
 }
 fn git_dir(f: &Fixture) -> Bind {
     bind(
@@ -269,7 +282,7 @@ fn default_file_matches_exactly() {
         format!("      sandbox.id: \"{ID}\""),
         "    environment:".into(),
         "      TITLE: \"AI Sandbox\"".into(),
-        "      SANDBOX_SUDO: \"true\"".into(),
+        "      SANDBOX_SUDO: \"false\"".into(),
         "      HTTP_PROXY: http://proxy:3128".into(),
         "      HTTPS_PROXY: http://proxy:3128".into(),
         "      http_proxy: http://proxy:3128".into(),
@@ -283,7 +296,7 @@ fn default_file_matches_exactly() {
         "    volumes:".into(),
         "      - home:/config            # persistent home: logins, IDE settings, Toolbox IDEs".into(),
         vol(project(&f, false)),
-        vol(sandbox_dir(&f)),
+        vol(hidden_sandbox_dir(&f)),
         vol(git_dir(&f)),
         "    networks: [sandbox]".into(),
         "    mem_limit: \"8g\"".into(),
@@ -340,7 +353,7 @@ fn default_file_parses() {
     assert_eq!(env(&f, "TZ"), "Europe/Vienna");
     assert_eq!(
         binds(&root),
-        [project(&f, false), sandbox_dir(&f), git_dir(&f)]
+        [project(&f, false), hidden_sandbox_dir(&f), git_dir(&f)]
     );
 }
 
@@ -417,7 +430,60 @@ fn read_only_workspace_has_no_git_mounts() {
         &f.read_conf()
             .replace("workspace = \"rw\"", "workspace = \"ro\""),
     );
-    assert_eq!(binds(&generate_parsed(&f)), [project(&f, true)]);
+    assert_eq!(
+        binds(&generate_parsed(&f)),
+        [project(&f, true), hidden_sandbox_dir(&f)]
+    );
+}
+
+/// `protect_sandbox = true`: `.sandbox` read-only; a read-only workspace needs no mount of its own.
+#[test]
+fn protect_sandbox_read_only() {
+    for workspace in ["rw", "ro"] {
+        let f = Fixture::new();
+        f.write_conf(
+            &f.read_conf()
+                .replace(
+                    "workspace = \"rw\"",
+                    &format!("workspace = \"{workspace}\""),
+                )
+                .replace("protect_sandbox = \"hide\"", "protect_sandbox = true"),
+        );
+        let expected = if workspace == "rw" {
+            vec![
+                project(&f, false),
+                bind(f.dir.as_str(), format!("{}/.sandbox", f.work_dir()), true),
+                git_dir(&f),
+            ]
+        } else {
+            vec![project(&f, true)]
+        };
+        assert_eq!(binds(&generate_parsed(&f)), expected, "{workspace}");
+    }
+}
+
+/// The hiding folder is created, and emptied: what is in it would show up as `.sandbox/` in the sandbox.
+#[test]
+fn the_folder_over_a_hidden_sandbox_is_kept_empty() {
+    let f = Fixture::new();
+    let empty = f.dir.join(".state").join("empty");
+    generate_parsed(&f);
+    assert!(empty.is_dir());
+    fs::create_dir_all(empty.join("sub")).unwrap();
+    fs::write(empty.join("sub").join("x"), "x").unwrap();
+    fs::write(empty.join("y"), "y").unwrap();
+    generate_parsed(&f);
+    assert_eq!(fs::read_dir(&empty).unwrap().count(), 0);
+}
+
+#[test]
+fn protect_sandbox_defaults_to_hide() {
+    let f = Fixture::new();
+    f.write_conf(&f.read_conf().replace("protect_sandbox = \"hide\"\n", ""));
+    assert_eq!(
+        binds(&generate_parsed(&f)),
+        [project(&f, false), hidden_sandbox_dir(&f), git_dir(&f)]
+    );
 }
 
 #[test]
@@ -429,8 +495,60 @@ fn protect_git_off() {
     );
     assert_eq!(
         binds(&generate_parsed(&f)),
-        [project(&f, false), sandbox_dir(&f)]
+        [project(&f, false), hidden_sandbox_dir(&f)]
     );
+}
+
+/// `protect_git = "hide"`: an empty folder over `.git`, also with a read-only workspace; an empty file over a `.git`
+/// file (a worktree); nothing without `.git`.
+#[test]
+fn protect_git_hide() {
+    for workspace in ["rw", "ro"] {
+        let f = Fixture::new();
+        f.write_conf(
+            &f.read_conf()
+                .replace(
+                    "workspace = \"rw\"",
+                    &format!("workspace = \"{workspace}\""),
+                )
+                .replace("protect_git = true", "protect_git = \"hide\""),
+        );
+        let ro = workspace == "ro";
+        let mounts = |git: Option<Bind>| {
+            let mut m = vec![project(&f, ro), hidden_sandbox_dir(&f)];
+            m.extend(git);
+            m
+        };
+        assert_eq!(
+            binds(&generate_parsed(&f)),
+            mounts(Some(hidden_git(&f, "empty"))),
+            "{workspace}"
+        );
+
+        let git = f.project_dir.join(".git");
+        fs::remove_dir_all(&git).unwrap();
+        fs::write(&git, "gitdir: /elsewhere/.git/worktrees/x\n").unwrap();
+        assert_eq!(
+            binds(&generate_parsed(&f)),
+            mounts(Some(hidden_git(&f, "empty-file"))),
+            "{workspace}"
+        );
+
+        fs::remove_file(&git).unwrap();
+        assert_eq!(binds(&generate_parsed(&f)), mounts(None), "{workspace}");
+    }
+}
+
+/// The file over a hidden `.git` file is created, and emptied.
+#[test]
+fn the_file_over_a_hidden_git_file_is_kept_empty() {
+    let f = Fixture::new();
+    let empty = f.dir.join(".state").join("empty-file");
+    generate_parsed(&f);
+    assert_eq!(fs::read(&empty).unwrap(), b"");
+    fs::write(&empty, "x").unwrap();
+    generate_parsed(&f);
+    assert_eq!(fs::read(&empty).unwrap(), b"");
 }
 
 #[test]
@@ -438,13 +556,13 @@ fn the_git_folder_is_protected_only_if_it_exists() {
     let f = Fixture::new();
     assert_eq!(
         binds(&generate_parsed(&f)),
-        [project(&f, false), sandbox_dir(&f), git_dir(&f)]
+        [project(&f, false), hidden_sandbox_dir(&f), git_dir(&f)]
     );
 
     fs::remove_dir_all(f.project_dir.join(".git")).unwrap();
     assert_eq!(
         binds(&generate_parsed(&f)),
-        [project(&f, false), sandbox_dir(&f)]
+        [project(&f, false), hidden_sandbox_dir(&f)]
     );
 }
 
@@ -557,15 +675,12 @@ fn an_empty_sandbox_toml_uses_the_defaults() {
     let desktop = service(&root, "desktop");
     assert!(!has(&desktop, &["build", "args", "INSTALL_CLAUDE"]));
     assert_eq!(str_(&desktop, &["environment", "TITLE"]), "AI Sandbox");
-    assert_eq!(str_(&desktop, &["environment", "SANDBOX_SUDO"]), "true");
+    assert_eq!(str_(&desktop, &["environment", "SANDBOX_SUDO"]), "false");
     assert_eq!(str_(&desktop, &["mem_limit"]), "8g");
     assert!(!has(&desktop, &["cpus"]));
     assert!(!has(&desktop, &["devices"]));
     assert!(!has(&desktop, &["environment", "CUSTOM_USER"]));
-    assert_eq!(
-        binds(&root),
-        [project(&f, false), sandbox_dir(&f), git_dir(&f)]
-    );
+    assert_eq!(binds(&root), [project(&f, true), hidden_sandbox_dir(&f)]);
 }
 
 // --- [desktop] and [env] ---------------------------------------------------------
@@ -652,7 +767,7 @@ fn shares_are_mounted_after_the_project() {
         binds(&generate_parsed(&f)),
         [
             project(&f, false),
-            sandbox_dir(&f),
+            hidden_sandbox_dir(&f),
             git_dir(&f),
             bind(docs.as_str(), "/shares/docs", true),
             bind(data.as_str(), "/data", false)

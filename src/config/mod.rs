@@ -47,7 +47,10 @@ const MAX_LLM_CONTEXT: i64 = 1_048_576;
 pub struct Settings {
     pub project_name: Option<String>,
     pub read_only: bool,
-    pub protect_git: bool,
+    /// `project.protect_git`: how the desktop sees `.git`.
+    pub protect_git: GitProtection,
+    /// `project.protect_sandbox`: how the desktop sees `.sandbox/`.
+    pub protect_sandbox: SandboxProtection,
     pub ui_port: Option<u16>,
     pub install: Vec<ToolSetting>,
     pub title: String,
@@ -207,6 +210,76 @@ pub struct EnvVariable {
     pub value: String,
 }
 
+/// How the desktop sees the project's `.sandbox/` folder (`project.protect_sandbox`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxProtection {
+    /// `"hide"` (default): an empty folder; settings, allowlist and `.state/` can't be read.
+    Hide,
+    /// `true`: visible but read-only. It is never writable: the agent could widen its own allowlist and tools.
+    ReadOnly,
+}
+
+impl SandboxProtection {
+    /// For `sandbox info`.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Self::Hide => "hidden",
+            Self::ReadOnly => "read-only",
+        }
+    }
+}
+
+/// Reads `project.protect_sandbox`: `"hide"` or `true`; `false` is refused.
+fn protect_sandbox(value: Option<&Value>) -> Result<SandboxProtection> {
+    match value {
+        None => Ok(SandboxProtection::Hide),
+        Some(Value::Boolean(true)) => Ok(SandboxProtection::ReadOnly),
+        Some(Value::Boolean(false)) => Err(error(
+            "project.protect_sandbox can't be false: a writable .sandbox/ would let the agent change its own allowlist and tools. Use \"hide\" or true (read-only).",
+        )),
+        Some(Value::String(s)) if s == "hide" => Ok(SandboxProtection::Hide),
+        Some(v) => Err(error(format!(
+            "project.protect_sandbox must be \"hide\" or true (read-only) (got {}).",
+            reader::show(v)
+        ))),
+    }
+}
+
+/// How the desktop sees the project's `.git` (`project.protect_git`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitProtection {
+    /// `"hide"`: empty: the agent can't read the history, the remotes or the config.
+    Hide,
+    /// `true` (default): read-only: no hooks that would run on the host, no commits.
+    ReadOnly,
+    /// `false`: as the workspace (writable with `workspace = "rw"`).
+    Writable,
+}
+
+impl GitProtection {
+    /// For `sandbox info`.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Self::Hide => "hidden",
+            Self::ReadOnly => "read-only",
+            Self::Writable => "no",
+        }
+    }
+}
+
+/// Reads `project.protect_git`: `"hide"`, `true` or `false`.
+fn protect_git(value: Option<&Value>) -> Result<GitProtection> {
+    match value {
+        None | Some(Value::Boolean(true)) => Ok(GitProtection::ReadOnly),
+        Some(Value::Boolean(false)) => Ok(GitProtection::Writable),
+        Some(Value::String(s)) if s == "hide" => Ok(GitProtection::Hide),
+        Some(v) => Err(error(format!(
+            "project.protect_git must be \"hide\", true (read-only) or false (got {}).",
+            reader::show(v)
+        ))),
+    }
+}
+
 /// Basic auth for the web desktop (`desktop.auth`).
 #[derive(Debug, Clone)]
 pub struct BasicAuth {
@@ -316,13 +389,14 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
 
     // --- [project] ---
     let name = project.str("name")?;
-    let workspace = project.str("workspace")?.unwrap_or("rw");
+    let workspace = project.str("workspace")?.unwrap_or("ro");
     if workspace != "rw" && workspace != "ro" {
         return Err(error(format!(
             "project.workspace must be \"rw\" or \"ro\" (got \"{workspace}\")."
         )));
     }
-    let protect_git = project.bool("protect_git")?.unwrap_or(true);
+    let protect_git = protect_git(project.raw("protect_git"))?;
+    let protect_sandbox = protect_sandbox(project.raw("protect_sandbox"))?;
     let port = project.int("ui_port")?;
     let ui_port = match port {
         None => None,
@@ -353,7 +427,7 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
 
     // --- [desktop] ---
     let title = desktop.str("title")?.unwrap_or("AI Sandbox").to_string();
-    let sudo = desktop.bool("sudo")?.unwrap_or(true);
+    let sudo = desktop.bool("sudo")?.unwrap_or(false);
     let memory = desktop.str("memory")?.unwrap_or("8g").to_string();
     if !MEMORY_SIZE.is_match(&memory) {
         return Err(error(format!(
@@ -478,6 +552,7 @@ pub fn read(path: &Utf8Path, project_dir: &Utf8Path, dockerfile: &str) -> Result
             .map(str::to_string),
         read_only: workspace == "ro",
         protect_git,
+        protect_sandbox,
         ui_port,
         install,
         title,
@@ -845,9 +920,54 @@ mod tests {
     }
 
     #[test]
+    fn protect_sandbox_values() {
+        let read = |v: &str| read_str(&format!("[project]\nprotect_sandbox = {v}\n"));
+        assert_eq!(
+            read("\"hide\"").unwrap().protect_sandbox,
+            SandboxProtection::Hide
+        );
+        assert_eq!(
+            read("true").unwrap().protect_sandbox,
+            SandboxProtection::ReadOnly
+        );
+        assert!(
+            read("false")
+                .unwrap_err()
+                .to_string()
+                .contains("project.protect_sandbox can't be false")
+        );
+        for bad in ["\"ro\"", "1"] {
+            assert!(
+                read(bad)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("project.protect_sandbox must be \"hide\" or true (read-only)")
+            );
+        }
+    }
+
+    #[test]
+    fn protect_git_values() {
+        let read = |v: &str| read_str(&format!("[project]\nprotect_git = {v}\n"));
+        assert_eq!(read("\"hide\"").unwrap().protect_git, GitProtection::Hide);
+        assert_eq!(read("true").unwrap().protect_git, GitProtection::ReadOnly);
+        assert_eq!(read("false").unwrap().protect_git, GitProtection::Writable);
+        for bad in ["\"ro\"", "1"] {
+            assert!(
+                read(bad)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("project.protect_git must be \"hide\", true (read-only) or false")
+            );
+        }
+    }
+
+    #[test]
     fn defaults() {
         let s = read_str("").unwrap();
-        assert!(!s.read_only && s.protect_git && s.sudo);
+        assert!(s.read_only && !s.sudo);
+        assert_eq!(s.protect_git, GitProtection::ReadOnly);
+        assert_eq!(s.protect_sandbox, SandboxProtection::Hide);
         assert_eq!((s.title.as_str(), s.memory.as_str()), ("AI Sandbox", "8g"));
         assert!(s.install.is_empty() && s.cpus.is_none() && s.auth.is_none());
     }

@@ -1,3 +1,6 @@
+[workspace]
+members = ["xtask"] # development tasks: `cargo xtask help`
+
 [package]
 name = "ai-sandbox"
 version = "0.1.0" # not the release version: releases are derived via git cliff (see AGENTS.md, "Releases")

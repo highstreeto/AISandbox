@@ -107,3 +107,5 @@ security.ubuntu.com
 # Make the server listen on 0.0.0.0 on the host, then use e.g.
 #   http://host.docker.internal:11434   from inside the sandbox.
 # host.docker.internal
+static.rust-lang.org
+esm.sh

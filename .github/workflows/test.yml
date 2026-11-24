@@ -15,6 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
-      - name: Run all tests
-        run: cargo test --workspace --all-targets --locked
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: All tests with coverage, report and minimum (MIN_LINE_COVERAGE in xtask/src/test.rs)
+        run: cargo xtask ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-html
+          path: target/llvm-cov/html

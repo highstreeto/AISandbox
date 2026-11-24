@@ -20,6 +20,7 @@ pub const URL: &str = "https://localhost:49153";
 pub const DEFAULT_CONF: &str = r#"[project]
 # name = "myproject"
 workspace = "rw"
+protect_sandbox = "hide"
 protect_git = true
 # ui_port = 3001
 

@@ -348,7 +348,15 @@ fn allow_rejects_an_invalid_host() {
 )]
 #[case(
     "[project]\nprotect_git = \"maybe\"\n",
-    "sandbox.toml: project.protect_git must be true or false (got \"maybe\")."
+    "sandbox.toml: project.protect_git must be \"hide\", true (read-only) or false (got \"maybe\")."
+)]
+#[case(
+    "[project]\nprotect_sandbox = \"ro\"\n",
+    "sandbox.toml: project.protect_sandbox must be \"hide\" or true (read-only) (got \"ro\")."
+)]
+#[case(
+    "[project]\nprotect_sandbox = false\n",
+    "sandbox.toml: project.protect_sandbox can't be false: a writable .sandbox/ would let the agent change its own allowlist and tools. Use \"hide\" or true (read-only)."
 )]
 #[case(
     "[project]\nui_port = \"abc\"\n",
@@ -360,7 +368,7 @@ fn allow_rejects_an_invalid_host() {
 )]
 #[case(
     "[project]\nworkspace_mode = \"ro\"\n",
-    "sandbox.toml: unknown key 'project.workspace_mode' (known: name, workspace, protect_git, ui_port)."
+    "sandbox.toml: unknown key 'project.workspace_mode' (known: name, workspace, protect_git, protect_sandbox, ui_port)."
 )]
 #[case(
     "[tool]\nnode = 24\n",

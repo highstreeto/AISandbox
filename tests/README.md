@@ -12,6 +12,17 @@ Run it from the repository root. Needs a Rust toolchain (1.88 or newer) and acce
 Docker needed. Runs on Windows, Linux and macOS, and takes a few seconds once built (the unit tests inside the modules
 run first, then the end-to-end tests in `tests/e2e`).
 
+## Coverage
+
+```bash
+cargo xtask coverage          # tests with coverage, report in target/llvm-cov/html/index.html, minimum check
+cargo xtask coverage --open   # the same, then open the report
+```
+
+Needs `rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov --locked` once. The `sandbox` runs
+of the end-to-end tests are measured as well; the test code under `tests/` is not counted. The minimum is
+`MIN_LINE_COVERAGE` in `xtask/src/test.rs`.
+
 ## How it works
 
 - **`fake_docker/main.rs`** is a tiny program, a second binary of the same package (`fake-docker`, `test = false`).
