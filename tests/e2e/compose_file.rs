@@ -162,6 +162,14 @@ fn hidden_sandbox_dir(f: &Fixture) -> Bind {
         true,
     )
 }
+/// `protect_git = "hide"`: the empty `.state/<name>` over `.git`.
+fn hidden_git(f: &Fixture, name: &str) -> Bind {
+    bind(
+        f.dir.join(".state").join(name).as_str(),
+        format!("{}/.git", f.work_dir()),
+        true,
+    )
+}
 fn git_dir(f: &Fixture) -> Bind {
     bind(
         f.project_dir.join(".git").as_str(),
@@ -489,6 +497,58 @@ fn protect_git_off() {
         binds(&generate_parsed(&f)),
         [project(&f, false), hidden_sandbox_dir(&f)]
     );
+}
+
+/// `protect_git = "hide"`: an empty folder over `.git`, also with a read-only workspace; an empty file over a `.git`
+/// file (a worktree); nothing without `.git`.
+#[test]
+fn protect_git_hide() {
+    for workspace in ["rw", "ro"] {
+        let f = Fixture::new();
+        f.write_conf(
+            &f.read_conf()
+                .replace(
+                    "workspace = \"rw\"",
+                    &format!("workspace = \"{workspace}\""),
+                )
+                .replace("protect_git = true", "protect_git = \"hide\""),
+        );
+        let ro = workspace == "ro";
+        let mounts = |git: Option<Bind>| {
+            let mut m = vec![project(&f, ro), hidden_sandbox_dir(&f)];
+            m.extend(git);
+            m
+        };
+        assert_eq!(
+            binds(&generate_parsed(&f)),
+            mounts(Some(hidden_git(&f, "empty"))),
+            "{workspace}"
+        );
+
+        let git = f.project_dir.join(".git");
+        fs::remove_dir_all(&git).unwrap();
+        fs::write(&git, "gitdir: /elsewhere/.git/worktrees/x\n").unwrap();
+        assert_eq!(
+            binds(&generate_parsed(&f)),
+            mounts(Some(hidden_git(&f, "empty-file"))),
+            "{workspace}"
+        );
+
+        fs::remove_file(&git).unwrap();
+        assert_eq!(binds(&generate_parsed(&f)), mounts(None), "{workspace}");
+    }
+}
+
+/// The file over a hidden `.git` file is created, and emptied.
+#[test]
+fn the_file_over_a_hidden_git_file_is_kept_empty() {
+    let f = Fixture::new();
+    let empty = f.dir.join(".state").join("empty-file");
+    generate_parsed(&f);
+    assert_eq!(fs::read(&empty).unwrap(), b"");
+    fs::write(&empty, "x").unwrap();
+    generate_parsed(&f);
+    assert_eq!(fs::read(&empty).unwrap(), b"");
 }
 
 #[test]

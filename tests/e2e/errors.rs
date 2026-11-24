@@ -348,7 +348,7 @@ fn allow_rejects_an_invalid_host() {
 )]
 #[case(
     "[project]\nprotect_git = \"maybe\"\n",
-    "sandbox.toml: project.protect_git must be true or false (got \"maybe\")."
+    "sandbox.toml: project.protect_git must be \"hide\", true (read-only) or false (got \"maybe\")."
 )]
 #[case(
     "[project]\nprotect_sandbox = \"ro\"\n",

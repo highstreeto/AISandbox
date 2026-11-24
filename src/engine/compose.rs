@@ -4,7 +4,7 @@
 //! `sandbox.toml` or this machine are expressions. Text values go through `q`, which writes a quoted YAML string,
 //! so a path like `C:\Users\x` or a value containing `": #"` can't break or inject YAML.
 
-use crate::config::SandboxProtection;
+use crate::config::{GitProtection, SandboxProtection};
 use crate::engine::{self, embedded};
 use crate::paths;
 use crate::process::user_ids;
@@ -129,6 +129,7 @@ pub fn generate(project: &Project, runtime: &RuntimeInfo) -> Result<engine::Sync
     write_state_ignore(&state_dir)?;
     let report = engine::sync(&state_dir)?;
     empty_dir(&state_dir.join(EMPTY_DIR))?;
+    empty_file(&state_dir.join(EMPTY_FILE))?;
     let text = render(
         &embedded::read_text(TEMPLATE_NAME)?,
         &model(project, runtime, upstream),
@@ -142,8 +143,11 @@ pub fn generate(project: &Project, runtime: &RuntimeInfo) -> Result<engine::Sync
     Ok(report)
 }
 
-/// The folder in `.state/` that is mounted over `.sandbox` to hide it (`protect_sandbox = "hide"`).
+/// The folder in `.state/` that is mounted over `.sandbox` and `.git` to hide them (`protect_sandbox` /
+/// `protect_git = "hide"`).
 pub const EMPTY_DIR: &str = "empty";
+/// The file in `.state/` that is mounted over a `.git` file (a worktree or submodule) to hide it.
+pub const EMPTY_FILE: &str = "empty-file";
 
 /// Creates `dir`, or empties it: whatever is in it would be visible in the sandbox as `.sandbox/`.
 fn empty_dir(dir: &Utf8Path) -> Result<()> {
@@ -162,6 +166,14 @@ fn empty_dir(dir: &Utf8Path) -> Result<()> {
         paths::create_dir_all(dir)?;
     }
     Ok(())
+}
+
+/// Creates or truncates `file`: what is in it would be visible in the sandbox as `.git`.
+fn empty_file(file: &Utf8Path) -> Result<()> {
+    if file.is_dir() {
+        fs::remove_dir_all(file).with_context(|| format!("Could not delete {file}."))?;
+    }
+    fs::write(file, b"").with_context(|| format!("Could not write {file}."))
 }
 
 /// `.state/` must be writable. Inside a sandbox `.sandbox/` is hidden or read-only (`protect_sandbox`; with
@@ -391,8 +403,8 @@ fn model(project: &Project, runtime: &RuntimeInfo, upstream: Option<String>) -> 
     }
 }
 
-/// Mounts of the desktop: the project, `.sandbox` (hidden or read-only, never writable: `protect_sandbox`), the read-only
-/// .git (protect_git), the shares.
+/// Mounts of the desktop: the project, `.sandbox` (hidden or read-only, never writable: `protect_sandbox`), `.git`
+/// (hidden or read-only: `protect_git`), the shares.
 pub fn mounts(project: &Project) -> Vec<MountModel> {
     let s = &project.settings;
     let wd = &project.work_dir;
@@ -418,15 +430,31 @@ pub fn mounts(project: &Project) -> Vec<MountModel> {
         }),
         SandboxProtection::ReadOnly => {}
     }
-    if s.protect_git && !s.read_only {
-        let git_dir = project.project_dir.join(".git");
-        if git_dir.exists() {
-            mounts.push(MountModel {
-                source: git_dir.to_string(),
-                target: format!("{wd}/.git"),
-                read_only: true,
-            });
-        }
+    // Only if it exists: a mount would create it, in the project on the host too.
+    let git_dir = project.project_dir.join(".git");
+    let git_target = format!("{wd}/.git");
+    match s.protect_git {
+        // Empty: the agent can't read the history, the remotes or the config. A `.git` file (a worktree or
+        // submodule) gets an empty file: a folder can't be mounted over a file.
+        GitProtection::Hide if git_dir.exists() => mounts.push(MountModel {
+            source: project
+                .state_dir()
+                .join(if git_dir.is_file() {
+                    EMPTY_FILE
+                } else {
+                    EMPTY_DIR
+                })
+                .to_string(),
+            target: git_target,
+            read_only: true,
+        }),
+        // Read-only: no hooks that run on the host (already so with `workspace = "ro"`).
+        GitProtection::ReadOnly if !s.read_only && git_dir.exists() => mounts.push(MountModel {
+            source: git_dir.to_string(),
+            target: git_target,
+            read_only: true,
+        }),
+        _ => {}
     }
     for sh in &s.shares {
         mounts.push(MountModel {

@@ -91,7 +91,7 @@ the folder keeps the same sandbox.
 # name = "myproject"        # container group name (default: folder name)
 workspace = "ro"            # "rw" | "ro"
 protect_sandbox = "hide"    # .sandbox/ inside: "hide" (empty) | true (read-only)
-protect_git = true          # if .git/ should be readonly
+protect_git = true          # .git/ inside: true (read-only) | "hide" (empty) | false
 # ui_port = 3001            # fixed port instead of a random one
 
 [tools]                     # true = default version, false = skip, "x" = version, [..] = several
@@ -257,7 +257,7 @@ Sizes are rough, and not every tag has been tested. Agent tools need a model wit
 | Network | Only through the allowlist proxy; no direct route, no external DNS, HTTPS only to port 443 |
 | Project | Read-write or read-only (`workspace`) |
 | `.sandbox/` | Hidden inside (`protect_sandbox = "hide"`, an empty folder): the agent can't read its settings, allowlist or the generated `compose.yml`, nor widen its own allowlist or tools. `true` makes it visible but read-only. It is never writable |
-| `.git/` | Read-only (`protect_git`), so no hooks can be planted that run on your host. And the agent cannot commit any changes. |
+| `.git/` | Read-only (`protect_git = true`), so no hooks can be planted that run on your host. And the agent cannot commit any changes. `"hide"` makes it an empty folder (an empty file for a worktree's `.git` file): the agent can't read the history, remotes or config either |
 | Home | A volume per project |
 | UI | `127.0.0.1` only, optional basic auth |
 | Proxy / gateway | Run as `nobody`, read-only filesystem, no capabilities |

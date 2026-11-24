@@ -10,7 +10,7 @@
 # name = "myproject"        # container group name (default: project folder name)
 workspace = "ro"            # "rw" | "ro"   access to the project folder
 protect_sandbox = "hide"    # .sandbox/ inside: "hide" (empty) | true (read-only)
-protect_git = true          # if .git/ should be readonly
+protect_git = true          # .git/ inside: true (read-only) | "hide" (empty) | false
 # ui_port = 3001            # fixed localhost port (default: random free port)
 
 # Tools baked into the image. true = default version, false = don't install,
