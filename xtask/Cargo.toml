@@ -1,0 +1,14 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Development tasks for the sandbox app: what CI runs, runnable locally (`cargo xtask help`)"
+license = "MIT"
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

@@ -18,6 +18,7 @@ What a coding agent needs to change this repository. The user-facing docs are in
 | `src/allowlist.rs` | Line-based edits of `allowlist.txt` that keep comments and groups |
 | `src/ui/` | Terminal output (panels, tables) |
 | `resources/` | The engine, compiled into the binary: compose template, Dockerfiles, tool scripts, proxy and LLM gateway config, `init/` templates |
+| `xtask/` | Development tasks run by CI and locally: `cargo xtask test`, `coverage`, `ci` |
 | `tests/` | End-to-end tests against a fake `docker` (see [tests/README.md](tests/README.md)) |
 | `install/` | `install.sh` / `install.ps1`: download a release, verify `SHA256SUMS`, put `sandbox` on PATH |
 | `.github/` | `workflows/test.yml` (tests), `workflows/release.yml` (releases); `cliff.toml` (changelog and version rules) is in the root |
@@ -30,9 +31,18 @@ version), `SANDBOX_TARGET`, `SANDBOX_RELEASE_BUILD` (only with `SANDBOX_RELEASE_
 
 ```bash
 cargo build
-cargo test --workspace --all-targets --locked   # what CI runs (.github/workflows/test.yml)
-cargo clippy --all-targets
+cargo xtask test       # all tests (cargo test --workspace --all-targets --locked)
+cargo xtask coverage   # all tests with coverage, HTML report, minimum check
+cargo xtask ci         # what CI runs (.github/workflows/test.yml): coverage, so the tests run once
+cargo clippy --all-targets --workspace
 ```
+
+`xtask/` (a workspace member without dependencies, alias in `.cargo/config.toml`) holds what CI runs, so it can be run
+locally. Coverage uses [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov), entirely local (once:
+`rustup component add llvm-tools-preview` and `cargo install cargo-llvm-cov --locked`). It counts what the end-to-end
+tests run in the `sandbox` binary too; `tests/` itself is left out. The report is `target/llvm-cov/html/index.html`
+(`--open` opens it); total line coverage below `MIN_LINE_COVERAGE` (`xtask/src/main.rs`) fails the build. In CI the
+summary goes to the job summary and the HTML report is the `coverage-html` artifact.
 
 The end-to-end tests are the specification: they run the built `sandbox` binary against `fake-docker` and assert the
 exact docker calls, exit codes, messages and the generated compose file. No Docker needed. Behaviour changes need a test
