@@ -96,7 +96,12 @@ OpenCode — opencode.json (project) or ~/.config/opencode/opencode.json:
         "npm": "@ai-sdk/openai-compatible",
         "name": "Local LLM",
         "options": { "baseURL": "$url/v1" },
-        "models": { "$model": { "name": "$model" } }
+        "models": {
+          "$model": {
+            "name": "$model",
+            "limit": { "context": $context }
+          }
+        }
       }
     }
   }
