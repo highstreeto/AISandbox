@@ -1,8 +1,6 @@
 name: Tests
 
 on:
-  push:
-    branches-ignore: [main] # main is tested by the release workflow before it releases
   pull_request:
   workflow_call:
 
@@ -12,6 +10,9 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # the coverage comment
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -22,7 +23,35 @@ jobs:
       - name: All tests with coverage, report and minimum (MIN_LINE_COVERAGE in xtask/src/test.rs)
         run: cargo xtask ci
       - uses: actions/upload-artifact@v4
+        id: report
         if: always()
         with:
           name: coverage-html
           path: target/llvm-cov/html
+      - name: Coverage comment text (links to the report)
+        # Not for forks: their token is read-only.
+        if: >-
+          always() && github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && hashFiles('target/llvm-cov/summary.md') != ''
+        env:
+          REPORT_URL: ${{ steps.report.outputs.artifact-url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo
+            if [ -n "$REPORT_URL" ]; then
+              echo "[HTML report]($REPORT_URL) (artifact \`coverage-html\`) · [workflow run]($RUN_URL)"
+            else
+              echo "[Workflow run]($RUN_URL)"
+            fi
+          } >> target/llvm-cov/summary.md
+      - name: Coverage comment (one per pull request, updated on every run)
+        uses: marocchino/sticky-pull-request-comment@v2
+        if: >-
+          always() && github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository
+          && hashFiles('target/llvm-cov/summary.md') != ''
+        with:
+          header: coverage
+          path: target/llvm-cov/summary.md

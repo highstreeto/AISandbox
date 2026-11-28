@@ -185,7 +185,7 @@ services:
   # The local LLM: only the "llm" gateway is reachable from the desktop. It passes inference and read-only
   # endpoints to ollama and logs token usage; pulling models is left to the sandbox app ("sandbox llm pull").
   ollama:
-    image: "ollama/ollama:0.40.16{{ "-rocm" if llm.gpu == "amd" else "" }}"
+    image: "ollama/ollama:0.40.19{{ "-rocm" if llm.gpu == "amd" else "" }}"
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
     environment:
